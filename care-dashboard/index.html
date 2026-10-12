@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CARE // 2099 RESPONSE GRID</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#05060c;
+    --bg-2:#0a0e1a;
+    --panel:#0d1222;
+    --panel-2:#0f1830;
+    --line:#1c2a4a;
+    --cyan:#3bf4ff;
+    --magenta:#ff3bd4;
+    --amber:#ffb13b;
+    --green:#3bffb0;
+    --red:#ff4d6a;
+    --text:#d8ecff;
+    --text-dim:#7f95c2;
+    --glow-cyan: 0 0 6px rgba(59,244,255,.7), 0 0 24px rgba(59,244,255,.25);
+    --glow-magenta: 0 0 6px rgba(255,59,212,.7), 0 0 24px rgba(255,59,212,.25);
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#05060c; --bg-2:#0a0e1a; --panel:#0d1222; --panel-2:#0f1830;
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(circle at 20% -10%, rgba(59,244,255,.08), transparent 40%),
+      radial-gradient(circle at 90% 0%, rgba(255,59,212,.08), transparent 45%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.015) 0px, rgba(255,255,255,.015) 1px, transparent 1px, transparent 3px),
+      var(--bg);
+    color:var(--text);
+    font-family:'Share Tech Mono', monospace;
+    min-height:100vh;
+    padding:16px;
+    overflow-x:hidden;
+  }
+  h1,h2,h3{font-family:'Orbitron', sans-serif; margin:0;}
+  .scanlines{
+    position:fixed; inset:0; pointer-events:none; z-index:50; opacity:.35;
+    background:repeating-linear-gradient(180deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,.25) 3px);
+    mix-blend-mode:overlay;
+  }
+  .wrap{max-width:1280px; margin:0 auto; position:relative;}
+
+  /* HEADER */
+  header{
+    display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end;
+    gap:12px; padding:18px 20px; margin-bottom:18px;
+    background:linear-gradient(135deg, var(--panel), var(--panel-2));
+    border:1px solid var(--line);
+    border-radius:14px;
+    position:relative;
+    overflow:hidden;
+  }
+  header::before{
+    content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent, rgba(59,244,255,.5), transparent);
+    height:2px; top:0; animation:sweep 5s linear infinite;
+  }
+  @keyframes sweep{ 0%{transform:translateX(-100%);} 100%{transform:translateX(100%);} }
+  .brand{display:flex; align-items:center; gap:14px;}
+  .brand .mark{
+    width:46px; height:46px; border-radius:10px;
+    background:conic-gradient(from 90deg, var(--cyan), var(--magenta), var(--amber), var(--cyan));
+    box-shadow:var(--glow-cyan);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Orbitron'; font-weight:900; color:#05060c; font-size:18px;
+  }
+  .brand h1{
+    font-size:clamp(20px,3.4vw,30px); letter-spacing:2px;
+    color:var(--cyan); text-shadow:var(--glow-cyan);
+  }
+  .brand .sub{color:var(--text-dim); font-size:12px; letter-spacing:3px;}
+  .clock{text-align:right; font-family:'Orbitron'; color:var(--magenta); text-shadow:var(--glow-magenta);}
+  .clock .t{font-size:clamp(18px,3vw,26px); letter-spacing:2px;}
+  .clock .d{font-size:11px; color:var(--text-dim); letter-spacing:2px;}
+
+  nav.tabs{display:flex; gap:10px; margin:0 0 16px; flex-wrap:wrap;}
+  nav.tabs a{
+    text-decoration:none; font-family:'Orbitron'; font-size:11px; letter-spacing:2px;
+    color:var(--text-dim); border:1px solid var(--line); border-radius:999px;
+    padding:8px 16px; background:var(--panel);
+  }
+  nav.tabs a.active{color:var(--bg); background:var(--cyan); border-color:var(--cyan); box-shadow:var(--glow-cyan);}
+  nav.tabs a.ghost{opacity:.5;}
+
+  /* CONTROLS */
+  .controls{
+    display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:12px 14px; margin-bottom:18px;
+  }
+  .controls label{font-size:11px; color:var(--text-dim); letter-spacing:1px; margin-right:6px;}
+  .controls input[type="text"], .controls select{
+    background:var(--bg-2); border:1px solid var(--line); color:var(--text);
+    border-radius:8px; padding:8px 10px; font-family:'Share Tech Mono'; font-size:13px;
+  }
+  .btn{
+    font-family:'Orbitron'; font-size:11px; letter-spacing:1.5px; cursor:pointer;
+    border-radius:8px; padding:9px 14px; border:1px solid var(--cyan); color:var(--cyan);
+    background:rgba(59,244,255,.08); transition:.15s;
+  }
+  .btn:hover{background:var(--cyan); color:var(--bg); box-shadow:var(--glow-cyan);}
+  .btn.magenta{border-color:var(--magenta); color:var(--magenta); background:rgba(255,59,212,.08);}
+  .btn.magenta:hover{background:var(--magenta); color:var(--bg); box-shadow:var(--glow-magenta);}
+  #fileInput{display:none;}
+  .pill{font-size:11px; color:var(--text-dim);}
+  .pill b{color:var(--green);}
+
+  /* KPI GRID */
+  .kpi-grid{
+    display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:20px;
+  }
+  @media (max-width:980px){ .kpi-grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:480px){ .kpi-grid{grid-template-columns:1fr;} }
+  .kpi{
+    position:relative; background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:16px; overflow:hidden;
+  }
+  .kpi::after{
+    content:""; position:absolute; left:0; right:0; bottom:0; height:3px;
+    background:linear-gradient(90deg, var(--cyan), var(--magenta));
+  }
+  .kpi .label{font-size:11px; letter-spacing:2px; color:var(--text-dim); font-family:'Orbitron';}
+  .kpi .value{font-family:'Orbitron'; font-size:clamp(22px,4vw,30px); font-weight:700; margin-top:8px; color:var(--text);}
+  .kpi .value.cyan{color:var(--cyan); text-shadow:var(--glow-cyan);}
+  .kpi .value.magenta{color:var(--magenta); text-shadow:var(--glow-magenta);}
+  .kpi .value.amber{color:var(--amber);}
+  .kpi .value.red{color:var(--red);}
+  .kpi .delta{font-size:11px; margin-top:6px; color:var(--text-dim);}
+
+  /* PANELS */
+  .grid-2{display:grid; grid-template-columns:1.3fr 1fr; gap:16px; margin-bottom:16px;}
+  .grid-3{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;}
+  @media (max-width:900px){ .grid-2, .grid-3{grid-template-columns:1fr;} }
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:16px; position:relative;
+  }
+  .panel h2{font-size:13px; letter-spacing:2px; color:var(--cyan); margin-bottom:12px;}
+  .panel h2 span{color:var(--text-dim); font-family:'Share Tech Mono'; letter-spacing:0; font-size:11px;}
+  canvas{max-width:100%;}
+
+  /* TABLE */
+  table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  thead th{
+    text-align:left; color:var(--text-dim); font-family:'Orbitron'; font-size:10px;
+    letter-spacing:1.5px; padding:8px 10px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel);
+  }
+  tbody td{padding:9px 10px; border-bottom:1px solid rgba(28,42,74,.6); color:var(--text);}
+  tbody tr:hover{background:rgba(59,244,255,.05);}
+  .badge{display:inline-block; padding:2px 9px; border-radius:999px; font-size:10.5px; font-family:'Orbitron'; letter-spacing:1px;}
+  .badge.yes{color:var(--green); border:1px solid var(--green); background:rgba(59,255,176,.08);}
+  .badge.no{color:var(--red); border:1px solid var(--red); background:rgba(255,77,106,.08);}
+  .tablewrap{max-height:420px; overflow:auto; border-radius:10px;}
+  .mono-dim{color:var(--text-dim);}
+
+  footer{text-align:center; color:var(--text-dim); font-size:11px; padding:22px 0 8px; letter-spacing:1px;}
+  footer b{color:var(--cyan);}
+</style>
+</head>
+<body>
+<div class="scanlines"></div>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="mark">CR</div>
+      <div>
+        <h1>CARE // RESPONSE GRID</h1>
+        <div class="sub">MAILBOX TELEMETRY · care@panhomestores.com</div>
+      </div>
+    </div>
+    <div class="clock">
+      <div class="t" id="clockTime">--:--:--</div>
+      <div class="d" id="clockDate">SYSTEM YEAR 2099 · UPLINK STABLE</div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <a href="#" class="active">CARE MAILBOX</a>
+    <a href="#" class="ghost" title="Separate dashboard">CALL CENTER ↗</a>
+    <a href="#" class="ghost" title="Separate dashboard">COMPLAINTS ↗</a>
+  </nav>
+
+  <div class="controls">
+    <div>
+      <label>RANGE</label>
+      <select id="rangeFilter">
+        <option value="all">ALL (14d)</option>
+        <option value="7">LAST 7d</option>
+        <option value="3">LAST 3d</option>
+        <option value="1">TODAY</option>
+      </select>
+    </div>
+    <div>
+      <label>AGENT</label>
+      <select id="agentFilter"><option value="all">ALL</option></select>
+    </div>
+    <div>
+      <label>STATUS</label>
+      <select id="statusFilter">
+        <option value="all">ALL</option>
+        <option value="yes">REPLIED</option>
+        <option value="NO">PENDING</option>
+      </select>
+    </div>
+    <input type="text" id="searchBox" placeholder="search sender / subject…" />
+    <button class="btn" onclick="document.getElementById('fileInput').click()">⇪ UPLOAD CSV</button>
+    <input type="file" id="fileInput" accept=".csv" />
+    <button class="btn magenta" id="resetBtn">↺ RESET DEMO DATA</button>
+    <span class="pill" id="sourcePill">SOURCE: <b>SIMULATED FEED</b></span>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi"><div class="label">EMAILS · 14d</div><div class="value cyan" id="kpiTotal">–</div><div class="delta" id="kpiTotalSub">customer inbound</div></div>
+    <div class="kpi"><div class="label">RESPONSE RATE</div><div class="value" id="kpiRate">–</div><div class="delta" id="kpiRateSub">replied vs received</div></div>
+    <div class="kpi"><div class="label">AVG RESPONSE</div><div class="value magenta" id="kpiAvg">–</div><div class="delta">work hours (08:30–17:00, Sun off)</div></div>
+    <div class="kpi"><div class="label">SLA BREACH (&gt;8h)</div><div class="value red" id="kpiBreach">–</div><div class="delta" id="kpiBreachSub">needs escalation</div></div>
+    <div class="kpi"><div class="label">TOP RESPONDER</div><div class="value amber" id="kpiTop" style="font-size:20px">–</div><div class="delta" id="kpiTopSub">–</div></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>DAILY VOLUME + AVG RESPONSE <span>// work-minutes trend</span></h2>
+      <canvas id="trendChart" height="150"></canvas>
+    </div>
+    <div class="panel">
+      <h2>REPLIED vs PENDING <span>// 14d split</span></h2>
+      <canvas id="donutChart" height="150"></canvas>
+    </div>
+  </div>
+
+  <div class="grid-3">
+    <div class="panel">
+      <h2>LOAD BY AGENT <span>// emails handled</span></h2>
+      <canvas id="agentChart" height="160"></canvas>
+    </div>
+    <div class="panel">
+      <h2>RESPONSE TIME DISTRIBUTION <span>// work-hour buckets</span></h2>
+      <canvas id="distChart" height="160"></canvas>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px;">
+    <h2>TRANSMISSION LOG <span id="logCount">// 0 records</span></h2>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>RECEIVED</th><th>FROM</th><th>SUBJECT</th><th>STATUS</th>
+            <th>ACTION</th><th>REPLIED AT</th><th>AGENT</th><th>WORK MIN</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    DATA MODEL MATCHES <b>care_email_test.py</b> OUTPUT (received, from, subject, replied, action, reply_time, who_replied, work_mins).
+    Showing simulated telemetry — upload the real <b>care_email_test_output.csv</b> to replace it. No data leaves this page.
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var COLORS = { cyan:'#3bf4ff', magenta:'#ff3bd4', amber:'#ffb13b', green:'#3bffb0', red:'#ff4d6a', dim:'#7f95c2' };
+  Chart.defaults.color = '#7f95c2';
+  Chart.defaults.font.family = "'Share Tech Mono', monospace";
+  Chart.defaults.borderColor = 'rgba(28,42,74,.6)';
+
+  var AGENTS = ['Mona Adel','Youssef Hassan','Sara Ibrahim','Ahmed Fathy','Laila Nour'];
+  var SUBJECTS = [
+    'Order delay - #PH-10234','Refund request','Product inquiry - sofa set','Delivery address change',
+    'Damaged item on arrival','Invoice copy needed','Warranty claim','Wrong item received',
+    'Cancel order request','Installment payment query','Store pickup question','Price match request',
+    'Missing accessories','Assembly instructions','Exchange request'
+  ];
+  var DOMAINS = ['gmail.com','yahoo.com','outlook.com','hotmail.com','icloud.com'];
+
+  function pad(n){ return n<10 ? '0'+n : ''+n; }
+  function fmt(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes()); }
+
+  function workMinutes(start, end){
+    if(!start || !end || end<=start) return 0;
+    var total=0, cur=new Date(start);
+    while(cur < end){
+      var dayStart = new Date(cur); dayStart.setHours(8,30,0,0);
+      var dayEnd = new Date(cur); dayEnd.setHours(17,0,0,0);
+      if(cur.getDay() !== 0){ // Sunday off
+        var s = cur > dayStart ? cur : dayStart;
+        var e = end < dayEnd ? end : dayEnd;
+        if(e > s) total += (e-s)/60000;
+      }
+      cur = new Date(cur); cur.setDate(cur.getDate()+1); cur.setHours(0,0,0,0);
+    }
+    return Math.round(total);
+  }
+
+  function randChoice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+  function genDemoData(){
+    var rows = [];
+    var now = new Date();
+    for(var i=0;i<46;i++){
+      var daysAgo = Math.random()*13.5;
+      var recv = new Date(now.getTime() - daysAgo*86400000);
+      recv.setHours(8 + Math.floor(Math.random()*10), Math.floor(Math.random()*60), 0, 0);
+      var replied = Math.random() < 0.82;
+      var action = replied ? randChoice(['Reply','Reply','Reply All','Forward']) : '';
+      var who = replied ? randChoice(AGENTS) : '';
+      var replyTime = null, workMins = '';
+      if(replied){
+        var delayHrs = Math.random() < 0.75 ? Math.random()*6 : 6 + Math.random()*20;
+        replyTime = new Date(recv.getTime() + delayHrs*3600000);
+        workMins = workMinutes(recv, replyTime);
+      }
+      rows.push({
+        received: fmt(recv),
+        _received: recv,
+        from: 'customer' + (100+i) + '@' + randChoice(DOMAINS),
+        subject: randChoice(SUBJECTS),
+        replied: replied ? 'yes' : 'NO',
+        action: action,
+        reply_time: replyTime ? fmt(replyTime) : '',
+        who_replied: who,
+        work_mins: workMins
+      });
+    }
+    rows.sort(function(a,b){ return b._received - a._received; });
+    return rows;
+  }
+
+  var state = { data: [], source: 'SIMULATED FEED' };
+  var charts = {};
+
+  function parseCSV(text){
+    var lines = text.replace(/\r/g,'').split('\n').filter(function(l){ return l.trim().length; });
+    if(!lines.length) return [];
+    var headers = splitCsvLine(lines[0]);
+    var out = [];
+    for(var i=1;i<lines.length;i++){
+      var cells = splitCsvLine(lines[i]);
+      var row = {};
+      headers.forEach(function(h,idx){ row[h.trim()] = (cells[idx]||'').trim(); });
+      row._received = row.received ? new Date(row.received.replace(' ','T')) : new Date();
+      out.push(row);
+    }
+    return out;
+  }
+  function splitCsvLine(line){
+    var res=[], cur='', inQ=false;
+    for(var i=0;i<line.length;i++){
+      var c = line[i];
+      if(inQ){
+        if(c === '"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else inQ=false; }
+        else cur += c;
+      } else {
+        if(c === '"') inQ = true;
+        else if(c === ','){ res.push(cur); cur=''; }
+        else cur += c;
+      }
+    }
+    res.push(cur);
+    return res;
+  }
+
+  function populateAgentFilter(){
+    var sel = document.getElementById('agentFilter');
+    var names = Array.from(new Set(state.data.filter(function(r){return r.who_replied;}).map(function(r){return r.who_replied;}))).sort();
+    sel.innerHTML = '<option value="all">ALL</option>' + names.map(function(n){return '<option value="'+n+'">'+n+'</option>';}).join('');
+  }
+
+  function applyFilters(){
+    var range = document.getElementById('rangeFilter').value;
+    var agent = document.getElementById('agentFilter').value;
+    var status = document.getElementById('statusFilter').value;
+    var q = document.getElementById('searchBox').value.trim().toLowerCase();
+    var now = new Date();
+    return state.data.filter(function(r){
+      if(range !== 'all'){
+        var days = (now - r._received)/86400000;
+        if(days > parseFloat(range)) return false;
+      }
+      if(agent !== 'all' && r.who_replied !== agent) return false;
+      if(status !== 'all' && r.replied !== status) return false;
+      if(q){
+        var hay = (r.from+' '+r.subject).toLowerCase();
+        if(hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function hoursLabel(mins){
+    if(mins === '' || mins === null || mins === undefined || isNaN(mins)) return '–';
+    var h = mins/60;
+    return h < 1 ? Math.round(mins)+'m' : h.toFixed(1)+'h';
+  }
+
+  function render(){
+    var rows = applyFilters();
+    renderKpis(rows);
+    renderTrend(rows);
+    renderDonut(rows);
+    renderAgentChart(rows);
+    renderDist(rows);
+    renderTable(rows);
+  }
+
+  function renderKpis(rows){
+    var total = rows.length;
+    var replied = rows.filter(function(r){return r.replied==='yes';});
+    var rate = total ? Math.round(replied.length/total*100) : 0;
+    var mins = replied.map(function(r){return Number(r.work_mins);}).filter(function(n){return !isNaN(n);});
+    var avg = mins.length ? Math.round(mins.reduce(function(a,b){return a+b;},0)/mins.length) : 0;
+    var breach = mins.filter(function(m){return m > 480;}).length;
+
+    var byAgent = {};
+    replied.forEach(function(r){ byAgent[r.who_replied] = (byAgent[r.who_replied]||0)+1; });
+    var top = Object.keys(byAgent).sort(function(a,b){return byAgent[b]-byAgent[a];})[0];
+
+    document.getElementById('kpiTotal').textContent = total;
+    document.getElementById('kpiRate').textContent = rate + '%';
+    document.getElementById('kpiRate').className = 'value ' + (rate>=90?'cyan':rate>=70?'amber':'red');
+    document.getElementById('kpiAvg').textContent = hoursLabel(avg);
+    document.getElementById('kpiBreach').textContent = breach;
+    document.getElementById('kpiBreachSub').textContent = breach ? 'response time over 8 work-hours' : 'all within SLA';
+    document.getElementById('kpiTop').textContent = top || '–';
+    document.getElementById('kpiTopSub').textContent = top ? (byAgent[top] + ' emails answered') : 'no replies yet';
+  }
+
+  function dayKey(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+
+  function renderTrend(rows){
+    var days = {};
+    rows.forEach(function(r){
+      var k = dayKey(r._received);
+      days[k] = days[k] || {count:0, sum:0, n:0};
+      days[k].count++;
+      var m = Number(r.work_mins);
+      if(r.replied==='yes' && !isNaN(m)){ days[k].sum += m; days[k].n++; }
+    });
+    var keys = Object.keys(days).sort();
+    var vol = keys.map(function(k){return days[k].count;});
+    var avg = keys.map(function(k){return days[k].n ? Math.round(days[k].sum/days[k].n) : null;});
+    var labels = keys.map(function(k){return k.slice(5);});
+
+    var ctx = document.getElementById('trendChart');
+    if(charts.trend) charts.trend.destroy();
+    charts.trend = new Chart(ctx, {
+      data:{
+        labels: labels,
+        datasets:[
+          {type:'bar', label:'Volume', data:vol, backgroundColor:'rgba(59,244,255,.35)', borderColor:COLORS.cyan, borderWidth:1, yAxisID:'y'},
+          {type:'line', label:'Avg Resp (min)', data:avg, borderColor:COLORS.magenta, backgroundColor:'rgba(255,59,212,.15)', tension:.35, yAxisID:'y1', pointRadius:3, pointBackgroundColor:COLORS.magenta, spanGaps:true}
+        ]
+      },
+      options:{
+        responsive:true,
+        interaction:{mode:'index', intersect:false},
+        scales:{
+          y:{ position:'left', grid:{color:'rgba(28,42,74,.4)'}, title:{display:true,text:'emails'} },
+          y1:{ position:'right', grid:{display:false}, title:{display:true,text:'work-min'} }
+        },
+        plugins:{ legend:{labels:{boxWidth:12}} }
+      }
+    });
+  }
+
+  function renderDonut(rows){
+    var yes = rows.filter(function(r){return r.replied==='yes';}).length;
+    var no = rows.length - yes;
+    var ctx = document.getElementById('donutChart');
+    if(charts.donut) charts.donut.destroy();
+    charts.donut = new Chart(ctx, {
+      type:'doughnut',
+      data:{ labels:['Replied','Pending'], datasets:[{ data:[yes,no], backgroundColor:[COLORS.green, COLORS.red], borderColor:'#0d1222', borderWidth:3 }]},
+      options:{ cutout:'68%', plugins:{legend:{position:'bottom', labels:{boxWidth:12}}} }
+    });
+  }
+
+  function renderAgentChart(rows){
+    var byAgent = {};
+    rows.forEach(function(r){
+      if(!r.who_replied) return;
+      byAgent[r.who_replied] = (byAgent[r.who_replied]||0)+1;
+    });
+    var labels = Object.keys(byAgent).sort(function(a,b){return byAgent[b]-byAgent[a];});
+    var data = labels.map(function(l){return byAgent[l];});
+    var ctx = document.getElementById('agentChart');
+    if(charts.agent) charts.agent.destroy();
+    charts.agent = new Chart(ctx, {
+      type:'bar',
+      data:{ labels:labels, datasets:[{ label:'Emails answered', data:data, backgroundColor:'rgba(255,177,59,.35)', borderColor:COLORS.amber, borderWidth:1 }]},
+      options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{grid:{color:'rgba(28,42,74,.4)'}}, y:{grid:{display:false}} } }
+    });
+  }
+
+  function renderDist(rows){
+    var buckets = [0,0,0,0]; // <1h, 1-4h, 4-8h, >8h
+    rows.forEach(function(r){
+      if(r.replied!=='yes') return;
+      var m = Number(r.work_mins);
+      if(isNaN(m)) return;
+      if(m < 60) buckets[0]++;
+      else if(m < 240) buckets[1]++;
+      else if(m < 480) buckets[2]++;
+      else buckets[3]++;
+    });
+    var ctx = document.getElementById('distChart');
+    if(charts.dist) charts.dist.destroy();
+    charts.dist = new Chart(ctx, {
+      type:'bar',
+      data:{ labels:['<1h','1–4h','4–8h','>8h'], datasets:[{ label:'Emails', data:buckets, backgroundColor:[COLORS.green,COLORS.cyan,COLORS.amber,COLORS.red] }]},
+      options:{ plugins:{legend:{display:false}}, scales:{ y:{grid:{color:'rgba(28,42,74,.4)'}}, x:{grid:{display:false}} } }
+    });
+  }
+
+  function renderTable(rows){
+    document.getElementById('logCount').textContent = '// ' + rows.length + ' records';
+    document.getElementById('tableBody').innerHTML = rows.map(function(r){
+      return '<tr>'+
+        '<td>'+r.received+'</td>'+
+        '<td>'+r.from+'</td>'+
+        '<td>'+r.subject+'</td>'+
+        '<td><span class="badge '+(r.replied==='yes'?'yes':'no')+'">'+(r.replied==='yes'?'REPLIED':'PENDING')+'</span></td>'+
+        '<td class="mono-dim">'+(r.action||'–')+'</td>'+
+        '<td class="mono-dim">'+(r.reply_time||'–')+'</td>'+
+        '<td>'+(r.who_replied||'–')+'</td>'+
+        '<td>'+(r.work_mins!==''&&r.work_mins!==undefined ? hoursLabel(r.work_mins) : '–')+'</td>'+
+      '</tr>';
+    }).join('');
+  }
+
+  function loadDemo(){
+    state.data = genDemoData();
+    state.source = 'SIMULATED FEED';
+    document.getElementById('sourcePill').innerHTML = 'SOURCE: <b>SIMULATED FEED</b>';
+    populateAgentFilter();
+    render();
+  }
+
+  document.getElementById('fileInput').addEventListener('change', function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+      try{
+        var rows = parseCSV(ev.target.result);
+        if(!rows.length) throw new Error('empty');
+        state.data = rows;
+        state.source = file.name;
+        document.getElementById('sourcePill').innerHTML = 'SOURCE: <b>' + file.name + '</b>';
+        populateAgentFilter();
+        render();
+      } catch(err){
+        alert('Could not parse CSV. Expected columns: received,from,subject,replied,action,reply_time,who_replied,work_mins');
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', loadDemo);
+  ['rangeFilter','agentFilter','statusFilter'].forEach(function(id){
+    document.getElementById(id).addEventListener('change', render);
+  });
+  document.getElementById('searchBox').addEventListener('input', render);
+
+  function tickClock(){
+    var now = new Date();
+    document.getElementById('clockTime').textContent = pad(now.getHours())+':'+pad(now.getMinutes())+':'+pad(now.getSeconds());
+    document.getElementById('clockDate').textContent = now.toISOString().slice(0,10) + ' · UPLINK STABLE';
+  }
+  setInterval(tickClock, 1000);
+  tickClock();
+
+  loadDemo();
+})();
+</script>
+</body>
+</html>
