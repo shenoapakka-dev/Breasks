@@ -263,8 +263,15 @@
       <canvas id="rateChart" height="190"></canvas>
     </div>
     <div class="panel">
-      <h2>Load by agent <span>// emails answered</span></h2>
-      <canvas id="agentChart" height="190"></canvas>
+      <h2>Agent performance <span>// replied emails only</span></h2>
+      <div class="tablewrap" style="max-height:260px;">
+        <table>
+          <thead>
+            <tr><th>Agent</th><th>Handled</th><th>Share</th><th>Avg response</th><th>SLA compliance</th><th>Fastest reply</th></tr>
+          </thead>
+          <tbody id="agentTableBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -441,7 +448,7 @@
     renderFunnel(rows);
     renderTrend(rows);
     renderRateChart(rows);
-    renderAgentChart(rows);
+    renderAgentTable(rows);
     renderTable(rows);
   }
 
@@ -581,22 +588,34 @@
     });
   }
 
-  function renderAgentChart(rows){
+  function renderAgentTable(rows){
+    var replied = rows.filter(function(r){ return r.replied==='yes' && r.who_replied; });
+    var totalReplied = replied.length;
     var byAgent = {};
-    rows.forEach(function(r){
-      if(!r.who_replied) return;
-      byAgent[r.who_replied] = (byAgent[r.who_replied]||0)+1;
+    replied.forEach(function(r){
+      var a = byAgent[r.who_replied] = byAgent[r.who_replied] || { handled:0, mins:[] };
+      a.handled++;
+      var m = Number(r.work_mins);
+      if(!isNaN(m)) a.mins.push(m);
     });
-    var labels = Object.keys(byAgent).sort(function(a,b){return byAgent[b]-byAgent[a];});
-    var data = labels.map(function(l){return byAgent[l];});
-    var palette = [C.indigo, C.blue, C.teal, C.purple, C.pink];
-    var ctx = document.getElementById('agentChart');
-    if(charts.agent) charts.agent.destroy();
-    charts.agent = new Chart(ctx, {
-      type:'bar',
-      data:{ labels:labels, datasets:[{ label:'Emails answered', data:data, backgroundColor:labels.map(function(_,i){return palette[i%palette.length];}), borderRadius:6, maxBarThickness:22 }]},
-      options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{grid:{color:C.grid}, border:{display:false}}, y:{grid:{display:false}, border:{display:false}} } }
-    });
+    var names = Object.keys(byAgent).sort(function(a,b){return byAgent[b].handled-byAgent[a].handled;});
+
+    document.getElementById('agentTableBody').innerHTML = names.map(function(name, i){
+      var a = byAgent[name];
+      var avg = a.mins.length ? a.mins.reduce(function(x,y){return x+y;},0)/a.mins.length : null;
+      var compliant = a.mins.length ? a.mins.filter(function(m){return m<=480;}).length/a.mins.length : null;
+      var fastest = a.mins.length ? Math.min.apply(null, a.mins) : null;
+      var share = totalReplied ? Math.round(a.handled/totalReplied*100) : 0;
+      var slaColor = compliant===null ? 'var(--text-faint)' : compliant>=0.9 ? 'var(--good)' : compliant>=0.7 ? '#c9860a' : 'var(--bad, #d6336c)';
+      return '<tr'+(i===0?' style="background:#f6f8ff"':'')+'>'+
+        '<td>'+(i===0?'🏆 ':'')+name+'</td>'+
+        '<td>'+a.handled+'</td>'+
+        '<td class="text-dim">'+share+'%</td>'+
+        '<td>'+(avg===null?'–':hoursLabel(Math.round(avg)))+'</td>'+
+        '<td style="color:'+slaColor+'; font-weight:700;">'+(compliant===null?'–':pct(compliant))+'</td>'+
+        '<td class="text-dim">'+(fastest===null?'–':hoursLabel(fastest))+'</td>'+
+      '</tr>';
+    }).join('') || '<tr><td colspan="6" class="text-dim">No replies yet in this filter.</td></tr>';
   }
 
   function renderTable(rows){
