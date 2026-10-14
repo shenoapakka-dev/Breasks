@@ -160,6 +160,17 @@
   .pill{font-size:12px; color:var(--text-dim); font-weight:600;}
   .pill b{color:var(--indigo);}
 
+  .statusbar{
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    margin:-8px 0 18px; padding:10px 16px;
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    font-size:12.5px; color:var(--text-dim); box-shadow:var(--shadow);
+  }
+  .statusbar .dot{width:8px; height:8px; border-radius:50%; background:var(--text-faint); display:inline-block; margin-right:6px;}
+  .statusbar.live .dot{background:var(--good); box-shadow:0 0 0 3px rgba(26,168,122,.18);}
+  .btn.light{background:#fff; color:var(--indigo); border-color:var(--border); padding:6px 13px; font-size:11.5px;}
+  .btn.light:hover{background:#f2f3ff;}
+
   footer{text-align:center; color:var(--text-faint); font-size:12px; padding:20px 0 6px;}
   footer b{color:var(--indigo);}
 </style>
@@ -187,6 +198,12 @@
     <a href="#" class="ghost" title="Separate dashboard">Call center ↗</a>
     <a href="#" class="ghost" title="Separate dashboard">Complaints ↗</a>
   </nav>
+
+  <div class="statusbar" id="statusBar">
+    <span><span class="dot" id="statusDot"></span>Source: <b id="sourceLabel" style="color:var(--text);">Simulated feed</b></span>
+    <span>Updated: <b id="lastUpdated" style="color:var(--text);">–</b></span>
+    <button class="btn light" id="refreshBtn" type="button">⟳ Refresh from local CSV</button>
+  </div>
 
   <div class="filters">
     <div class="field">
@@ -291,8 +308,9 @@
   </div>
 
   <footer>
-    Data model matches <b>care_email_test.py</b> output (received, from, subject, replied, action, reply_time, who_replied, work_mins).
-    Showing simulated telemetry — upload the real <b>care_email_test_output.csv</b> to replace it. No data leaves this page.
+    Data model matches <b>care_email_test.py</b> output. Open this page via <b>serve_dashboard.py</b>
+    (http://localhost:8787) and it auto-refreshes from <b>care_email_test_output.csv</b> every 60s — no cloud
+    connector, no admin approval, nothing leaves this machine. Otherwise upload the CSV manually above.
   </footer>
 </div>
 
@@ -634,11 +652,43 @@
     }).join('');
   }
 
+  function updateStatus(isLive){
+    document.getElementById('sourceLabel').textContent = state.source;
+    document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+    document.getElementById('statusBar').classList.toggle('live', !!isLive);
+  }
+
   function loadDemo(){
     state.data = genDemoData();
     state.source = 'Simulated feed';
     populateAgentFilter();
     render();
+    updateStatus(false);
+  }
+
+  var CSV_URL = 'care_email_test_output.csv';
+  var autoFetchWorkedOnce = false;
+
+  function tryAutoFetch(manual){
+    return fetch(CSV_URL + '?t=' + Date.now(), {cache:'no-store'})
+      .then(function(r){ if(!r.ok) throw new Error('not found'); return r.text(); })
+      .then(function(text){
+        var rows = parseCSV(text);
+        if(!rows.length) throw new Error('empty csv');
+        state.data = rows;
+        state.source = 'Live CSV (auto-refresh)';
+        autoFetchWorkedOnce = true;
+        populateAgentFilter();
+        render();
+        updateStatus(true);
+      })
+      .catch(function(){
+        // No local CSV reachable yet (opened via file://, server not running,
+        // or care_email_test.py hasn't been run). Keep whatever is on screen.
+        if(manual){
+          alert('No local care_email_test_output.csv found.\n\nRun care_email_test.py once, and open this page through serve_dashboard.py (http://localhost:8787) rather than by double-clicking the file — see README.md.');
+        }
+      });
   }
 
   document.getElementById('uploadBtn').addEventListener('click', function(){
@@ -653,9 +703,10 @@
         var rows = parseCSV(ev.target.result);
         if(!rows.length) throw new Error('empty');
         state.data = rows;
-        state.source = file.name;
+        state.source = file.name + ' (manual upload)';
         populateAgentFilter();
         render();
+        updateStatus(false);
       } catch(err){
         alert('Could not parse CSV. Expected columns: received,from,subject,replied,action,reply_time,who_replied,work_mins');
       }
@@ -664,12 +715,15 @@
   });
 
   document.getElementById('resetBtn').addEventListener('click', loadDemo);
+  document.getElementById('refreshBtn').addEventListener('click', function(){ tryAutoFetch(true); });
   ['rangeFilter','agentFilter','statusFilter'].forEach(function(id){
     document.getElementById(id).addEventListener('change', render);
   });
   document.getElementById('searchBox').addEventListener('input', render);
 
   loadDemo();
+  tryAutoFetch(false);
+  setInterval(function(){ tryAutoFetch(false); }, 60000);
 })();
 </script>
 </body>
