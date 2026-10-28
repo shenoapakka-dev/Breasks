@@ -381,8 +381,13 @@ async function submitRequest(form){
   var orderType = form.orderType;
   var errs = [];
   if(!orderType) errs.push("Order Type");
-  if(orderType==="Online" && !form.webOrderNumber.trim()) errs.push("Web Order Number");
+  var ORDER_NO_RE = /^[A-Za-z0-9]{9}$/;
+  if(orderType==="Online"){
+    if(!form.webOrderNumber.trim()) errs.push("Web Order Number");
+    else if(!ORDER_NO_RE.test(form.webOrderNumber.trim())) errs.push("Web Order Number must be exactly 9 letters/digits");
+  }
   if(!form.lnOrder.trim()) errs.push("LN Order");
+  else if(!ORDER_NO_RE.test(form.lnOrder.trim())) errs.push("LN Order must be exactly 9 letters/digits");
   if(!form.mobile.trim()) errs.push("Mobile Number");
   if(!form.region) errs.push("Region");
   if(!form.amount || isNaN(parseFloat(form.amount))) errs.push("Amount");
@@ -633,10 +638,10 @@ function renderNewRequest(){
     '<form id="newReqForm">'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Order Type *</label><select name="orderType" id="orderTypeSel"><option value="">Select…</option><option value="Store">Store</option><option value="Online">Online</option></select></div>'+
-        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" name="webOrderNumber" placeholder="e.g. WEB-10029384"></div>'+
+        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. A1B234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>LN Order Number *</label><input type="text" name="lnOrder" placeholder="e.g. LN-559021"></div>'+
+        '<div class="field"><label>LN Order Number *</label><input type="text" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. 559021ABC"></div>'+
         '<div class="field"><label>Mobile Number *</label><input type="tel" name="mobile" id="mobileInput" placeholder="e.g. 0501234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
