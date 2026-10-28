@@ -288,7 +288,15 @@ function refreshAll(silent){
     state.requests = (data.requests || []).map(function(r){ r.createdAt = toMs(r.createdAt); r.updatedAt = toMs(r.updatedAt); return r; });
     var me = state.users.filter(function(u){ return u.username === state.currentUser.username; })[0];
     if(me) state.currentUser.role = me.role;
-    render();
+    // Background polling must never blow away a form the user is mid-typing in
+    // (New Request fields, a password field, an ops remark, ...) — most of those
+    // aren't driven by `state`, so a full re-render would silently clear them.
+    // Skip painting this cycle; the data is already in `state` and will show on
+    // the next render the user's own actions trigger, or the next poll once
+    // they're no longer focused in a field.
+    var active = document.activeElement;
+    var isEditing = silent && active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+    if(!isEditing) render();
   }).catch(function(e){ if(!silent) toast("Couldn't refresh: "+e.message); });
 }
 
