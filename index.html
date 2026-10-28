@@ -316,7 +316,9 @@ function authErrText(code){
   if(code==="wrong_password") return "Wrong password.";
   if(code==="username_taken") return "That username is already taken. Try logging in instead.";
   if(code==="bad_username") return "Choose a username with at least 2 characters.";
-  return "Couldn't reach the server. Check your connection and try again.";
+  if(code==="bad_key") return "Server rejected the app key — the Apps Script code and this page's API_KEY must match exactly.";
+  if(code==="Failed to fetch" || /NetworkError|load failed/i.test(code||"")) return "Couldn't reach the server (network/CORS). Check the Apps Script deployment is set to \"Anyone\" and the URL is correct.";
+  return "Server error: "+(code||"unknown")+". Check the Apps Script deployment.";
 }
 function setAuthErr(msg){ var e=$("#authErr"); if(e) e.textContent = msg; }
 function persistSession(){ try{ localStorage.setItem("ph_cancel_session", JSON.stringify({username:state.currentUser.username, password:state.currentUser.password})); }catch(e){} }
@@ -328,15 +330,15 @@ async function changePassword(current,next){
     state.currentUser.password = next;
     persistSession();
     toast("Password updated.");
-  }catch(e){ toast(e.message==="wrong_password" ? "Current password is incorrect." : "Couldn't update password."); }
+  }catch(e){ toast(e.message==="wrong_password" ? "Current password is incorrect." : "Couldn't update password: "+e.message); }
 }
 async function adminSetRole(username, role){
   try{ await apiCall("adminSetRole", { caller: callerCred(), target: username, role: role }); toast("Role updated for "+username+"."); refreshAll(true); }
-  catch(e){ toast("Couldn't update role."); }
+  catch(e){ toast("Couldn't update role: "+e.message); }
 }
 async function adminResetPassword(username){
   try{ await apiCall("adminResetPassword", { caller: callerCred(), target: username }); toast("Password reset to 12345 for "+username+"."); }
-  catch(e){ toast("Couldn't reset password."); }
+  catch(e){ toast("Couldn't reset password: "+e.message); }
 }
 
 /* ---------- request actions ---------- */
@@ -369,7 +371,7 @@ async function submitRequest(form){
     toast("Cancellation request "+res.id+" submitted.");
     await refreshAll(true);
     return true;
-  }catch(e){ toast("Couldn't submit the request. Try again."); return false; }
+  }catch(e){ toast("Couldn't submit the request: "+e.message); return false; }
 }
 async function updateStatus(id, status, remark){
   var r = state.requests.filter(function(x){ return x.id===id; })[0];
@@ -378,7 +380,7 @@ async function updateStatus(id, status, remark){
     toast("Status updated: "+STATUS[status].label);
     if(r) openStoreEmail(r, status, remark);
     await refreshAll(true);
-  }catch(e){ toast("Couldn't update status."); }
+  }catch(e){ toast("Couldn't update status: "+e.message); }
 }
 
 /* Builds a pre-filled email (subject + body) for the store and opens it in the
