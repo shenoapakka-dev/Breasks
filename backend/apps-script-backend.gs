@@ -47,10 +47,22 @@ function setup() {
   if (u.getLastRow() === 0) u.appendRow(["username", "password", "role", "createdAt"]);
   var r = ss.getSheetByName("Requests") || ss.insertSheet("Requests");
   if (r.getLastRow() === 0) {
-    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson"]);
+    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson"]);
   }
   var def = ss.getSheetByName("Sheet1");
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 2) ss.deleteSheet(def);
+}
+
+/* One-time migration: run this ONCE if your "Requests" tab was created before the
+   "mobile" field existed (i.e. setup() already ran and the sheet already has data
+   you want to keep). Safe to run more than once — it no-ops if "mobile" is already there. */
+function migrateAddMobileColumn() {
+  var r = requestsSheet();
+  var headers = r.getRange(1, 1, 1, r.getLastColumn()).getValues()[0];
+  if (headers.indexOf("mobile") === -1) {
+    r.insertColumnAfter(6); // after column F (lnOrder) -> new column G
+    r.getRange(1, 7).setValue("mobile");
+  }
 }
 
 /* ---------- helpers ---------- */
@@ -131,7 +143,7 @@ function submitRequest(agentUsername, d) {
   var now = new Date().toISOString();
   var history = [{ status: "pending", by: agentUsername, at: now, remark: "Request submitted" }];
   sh.appendRow([
-    id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.region,
+    id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.mobile || "", d.region,
     Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "pending", now, JSON.stringify(history)
   ]);
   return { id: id };
@@ -143,11 +155,11 @@ function updateStatus(id, status, byUsername, remark) {
   for (var i = 1; i < data.length; i++) {
     if (data[i][0] === id) {
       var history = [];
-      try { history = JSON.parse(data[i][14] || "[]"); } catch (e) {}
+      try { history = JSON.parse(data[i][15] || "[]"); } catch (e) {}
       history.push({ status: status, by: byUsername, at: new Date().toISOString(), remark: remark || "" });
-      sh.getRange(i + 1, 13).setValue(status);
-      sh.getRange(i + 1, 14).setValue(new Date().toISOString());
-      sh.getRange(i + 1, 15).setValue(JSON.stringify(history));
+      sh.getRange(i + 1, 14).setValue(status);
+      sh.getRange(i + 1, 15).setValue(new Date().toISOString());
+      sh.getRange(i + 1, 16).setValue(JSON.stringify(history));
       return { ok: true };
     }
   }
@@ -165,12 +177,12 @@ function getAll() {
   for (var j = 1; j < rd.length; j++) {
     if (!rd[j][0]) continue;
     var history = [];
-    try { history = JSON.parse(rd[j][14] || "[]"); } catch (e) {}
+    try { history = JSON.parse(rd[j][15] || "[]"); } catch (e) {}
     requests.push({
       id: rd[j][0], createdAt: rd[j][1], agent: rd[j][2], orderType: rd[j][3],
-      webOrderNumber: rd[j][4], lnOrder: rd[j][5], region: rd[j][6], amount: rd[j][7],
-      reason: rd[j][8], note: rd[j][9], refundMethod: rd[j][10], retain: rd[j][11],
-      status: rd[j][12], updatedAt: rd[j][13], history: history
+      webOrderNumber: rd[j][4], lnOrder: rd[j][5], mobile: rd[j][6], region: rd[j][7],
+      amount: rd[j][8], reason: rd[j][9], note: rd[j][10], refundMethod: rd[j][11], retain: rd[j][12],
+      status: rd[j][13], updatedAt: rd[j][14], history: history
     });
   }
   return { users: users, requests: requests };

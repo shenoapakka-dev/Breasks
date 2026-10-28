@@ -344,6 +344,7 @@ async function submitRequest(form){
   if(!orderType) errs.push("Order Type");
   if(orderType==="Online" && !form.webOrderNumber.trim()) errs.push("Web Order Number");
   if(!form.lnOrder.trim()) errs.push("LN Order");
+  if(!form.mobile.trim()) errs.push("Mobile Number");
   if(!form.region) errs.push("Region");
   if(!form.amount || isNaN(parseFloat(form.amount))) errs.push("Amount");
   if(!form.reason) errs.push("Reason of Cancellation");
@@ -353,7 +354,7 @@ async function submitRequest(form){
   if(errs.length){ toast("Missing required field: "+errs[0]); return false; }
   var data = {
     webOrderNumber: orderType==="Online" ? form.webOrderNumber.trim() : "",
-    lnOrder: form.lnOrder.trim(), orderType: orderType, region: form.region,
+    lnOrder: form.lnOrder.trim(), mobile: form.mobile.trim(), orderType: orderType, region: form.region,
     amount: parseFloat(form.amount), reason: form.reason, note: form.note.trim(),
     refundMethod: form.refundMethod, retain: form.retain
   };
@@ -390,7 +391,7 @@ function filteredRequests(){
     if(f.region && r.region!==f.region) return false;
     if(f.q){
       var q=f.q.toLowerCase();
-      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.note,r.agent].join(" ").toLowerCase();
+      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent].join(" ").toLowerCase();
       if(hay.indexOf(q)===-1) return false;
     }
     return true;
@@ -550,11 +551,15 @@ function renderNewRequest(){
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>LN Order Number *</label><input type="text" name="lnOrder" placeholder="e.g. LN-559021"></div>'+
-        '<div class="field"><label>Region *</label><select name="region"><option value="">Select…</option>'+regionOpts+'</select></div>'+
+        '<div class="field"><label>Mobile Number *</label><input type="tel" name="mobile" id="mobileInput" placeholder="e.g. 0501234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Region *</label><select name="region" id="regionSel"><option value="">Select…</option>'+regionOpts+'</select></div>'+
         '<div class="field"><label>Amount (AED/local) *</label><input type="number" step="0.01" name="amount" placeholder="0.00"></div>'+
+      '</div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Reason of Cancellation *</label><select name="reason"><option value="">Select…</option>'+reasonOpts+'</select></div>'+
+        '<div class="field"><label>Date</label><input type="text" id="dateInput" disabled></div>'+
       '</div>'+
       '<div class="field" style="margin-bottom:14px"><label>Agent Name</label><input type="text" value="'+esc(state.currentUser.username)+'" disabled></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
@@ -581,6 +586,20 @@ function wireNewRequest(){
   }
   sel.addEventListener("change", syncWebOrder);
   syncWebOrder();
+
+  var dateEl = $("#dateInput");
+  if(dateEl) dateEl.value = new Date().toLocaleDateString(undefined,{weekday:"short",day:"2-digit",month:"short",year:"numeric"});
+
+  /* Optional CTI/CCS screen-pop integration: if your call center system can open this
+     page with the caller's number (and region) as URL parameters — e.g.
+     https://.../?mobile=0501234567&region=UAE — those fields are pre-filled automatically. */
+  try{
+    var qp = new URLSearchParams(location.search);
+    var mobileEl = $("#mobileInput"), regionEl = $("#regionSel");
+    if(qp.get("mobile") && mobileEl) mobileEl.value = qp.get("mobile");
+    if(qp.get("region") && regionEl) regionEl.value = qp.get("region").toUpperCase();
+  }catch(e){}
+
   var form = $("#newReqForm");
   form.addEventListener("submit", async function(e){
     e.preventDefault();
@@ -606,7 +625,7 @@ function renderRequests(){
   );
   return '<div class="card">'+
     '<div class="filterbar" style="margin-bottom:16px">'+
-      '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
+      '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, mobile number, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
       '<div class="field"><label>Status</label><select id="fStatus"><option value="">All</option>'+
         Object.keys(STATUS).map(function(k){ return '<option value="'+k+'" '+(state.filters.status===k?"selected":"")+'>'+STATUS[k].label+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Order Type</label><select id="fType"><option value="">All</option><option '+(state.filters.orderType==="Store"?"selected":"")+'>Store</option><option '+(state.filters.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
@@ -644,6 +663,7 @@ function renderReqCard(r){
       '<div class="kv">'+
         '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber):"N/A — Store order")+'</div></div>'+
         '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+'</div></div>'+
+        '<div><div class="k">Mobile Number</div><div class="vv">'+esc(r.mobile)+'</div></div>'+
         '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
         '<div><div class="k">Reason</div><div class="vv">'+esc(r.reason)+'</div></div>'+
         '<div><div class="k">Refund Via</div><div class="vv">'+esc(r.refundMethod)+'</div></div>'+
@@ -664,7 +684,7 @@ function wireRequests(){
 }
 function exportCsv(){
   var list = filteredRequests();
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","region","amount","reason","note","refundMethod","retain","status"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status"];
   var head = cols.join(",");
   var rows = list.map(function(r){
     return cols.map(function(c){
