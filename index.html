@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pan Home Cancel Desk</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --bg:#F4F6F6; --surface:#FFFFFF; --surface-2:#EEF2F2; --border:#DDE3E3;
+  --ink:#16222A; --ink-muted:#5B6B72; --ink-faint:#8A96A0;
+  --accent:#0D9488; --accent-ink:#FFFFFF; --accent-soft:#E3F3F1;
+  --good:#16A34A; --good-soft:#E3F6E9; --warn:#B45309; --warn-soft:#FDF1DD; --info:#2563EB; --info-soft:#E6EDFC; --bad:#B91C1C; --bad-soft:#FBE4E4;
+  --cat-1:#0D9488; --cat-2:#7C3AED; --cat-3:#C2410C; --cat-4:#0369A1; --cat-5:#A16207; --cat-6:#BE185D;
+  --shadow:0 1px 2px rgba(20,30,30,.06),0 8px 24px -12px rgba(20,30,30,.14);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#10171A; --surface:#182124; --surface-2:#1E2A2D; --border:#2B3A3D;
+    --ink:#EAF1F1; --ink-muted:#A7B6B8; --ink-faint:#71848A;
+    --accent:#14B8A6; --accent-ink:#06211E; --accent-soft:#19302C;
+    --good:#4ADE80; --good-soft:#163424; --warn:#F5A524; --warn-soft:#3A2A10; --info:#60A5FA; --info-soft:#17263E; --bad:#F87171; --bad-soft:#3A1A1A;
+    --cat-1:#0D9488; --cat-2:#9061F9; --cat-3:#EA580C; --cat-4:#0284C7; --cat-5:#A16207; --cat-6:#DB2777;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,Segoe UI,Roboto,sans-serif;
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+}
+h1,h2,h3,.brand{font-family:"Manrope",-apple-system,Segoe UI,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+button{font-family:inherit}
+::selection{background:var(--accent-soft)}
+img{max-width:100%}
+[hidden]{display:none!important}
+
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--surface)}
+
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;gap:14px;
+  padding:12px 0;background:var(--surface);border-bottom:1px solid var(--border);margin:0 -16px;padding-inline:16px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;white-space:nowrap}
+.brand .mark{width:30px;height:30px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0}
+.tabs{display:flex;gap:4px;flex:1;overflow-x:auto;min-width:0}
+.tab{padding:8px 12px;border-radius:8px;border:none;background:transparent;color:var(--ink-muted);font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap}
+.tab:hover{background:var(--surface-2);color:var(--ink)}
+.tab.active{background:var(--accent-soft);color:var(--accent)}
+.who{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.avatar{width:28px;height:28px;border-radius:50%;background:var(--surface-2);color:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;border:1px solid var(--border)}
+.rolepill{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--surface-2);color:var(--ink-muted)}
+.linkbtn{background:none;border:none;color:var(--ink-muted);font-size:13px;cursor:pointer;text-decoration:underline;padding:4px}
+.linkbtn:hover{color:var(--ink)}
+
+main{max-width:1180px;margin:0 auto;padding:20px 0 60px}
+.view{display:flex;flex-direction:column;gap:18px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow)}
+.card h2{margin:0 0 4px;font-size:17px}
+.card .sub{color:var(--ink-muted);font-size:13px;margin:0 0 14px}
+
+label{display:block;font-size:12.5px;font-weight:700;color:var(--ink-muted);margin-bottom:5px;letter-spacing:.01em}
+input[type=text],input[type=number],input[type=password],select,textarea{
+  width:100%;padding:9px 11px;border-radius:9px;border:1px solid var(--border);background:var(--bg);color:var(--ink);
+  font-size:14px;font-family:inherit;min-width:0;
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+textarea{resize:vertical;min-height:64px}
+.field{display:flex;flex-direction:column;gap:0;min-width:0}
+.field.na input,.field.na select{opacity:.45;pointer-events:none}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.grid.cols2{grid-template-columns:repeat(2,1fr)}
+@media (max-width:760px){.grid,.grid.cols2{grid-template-columns:1fr}}
+
+.btn{appearance:none;border:1px solid var(--border);background:var(--surface);color:var(--ink);padding:9px 16px;border-radius:9px;font-weight:700;font-size:13.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.sm{padding:6px 11px;font-size:12.5px}
+.btn.good{background:var(--good-soft);color:var(--good);border-color:transparent}
+.btn.info{background:var(--info-soft);color:var(--info);border-color:transparent}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btnrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:999px;white-space:nowrap}
+.badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.badge.pending{background:var(--warn-soft);color:var(--warn)}
+.badge.approved{background:var(--good-soft);color:var(--good)}
+.badge.sent{background:var(--info-soft);color:var(--info)}
+.badge.store{background:var(--surface-2);color:var(--ink-muted)}
+.badge.online{background:var(--accent-soft);color:var(--accent)}
+.badge.retained{background:var(--good-soft);color:var(--good)}
+.badge.notretained{background:var(--bad-soft);color:var(--bad)}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media (max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow);min-width:0}
+.kpi .lbl{font-size:12px;color:var(--ink-muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.kpi .val{font-size:26px;font-weight:800;margin-top:6px;font-family:"Manrope",sans-serif}
+.kpi .sub{font-size:12px;color:var(--ink-faint);margin-top:2px}
+
+.scopebar{display:flex;gap:6px;background:var(--surface-2);padding:3px;border-radius:9px;width:max-content}
+.scopebar button{border:none;background:transparent;padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:700;color:var(--ink-muted);cursor:pointer}
+.scopebar button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+
+.chartgrid{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+@media (max-width:900px){.chartgrid{grid-template-columns:1fr}}
+.hbarlist{display:flex;flex-direction:column;gap:9px}
+.hbarrow{display:grid;grid-template-columns:150px 1fr 48px;gap:10px;align-items:center;min-width:0}
+.hbarrow .lbl{font-size:12.5px;color:var(--ink-muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbartrack{background:var(--surface-2);border-radius:5px;height:10px;overflow:hidden;min-width:0}
+.hbarfill{height:100%;border-radius:5px;background:var(--accent)}
+.hbarrow .v{font-size:12.5px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+
+.legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:12.5px}
+.legend .item{display:flex;align-items:center;gap:6px;color:var(--ink-muted)}
+.legend .sw{width:9px;height:9px;border-radius:3px;flex-shrink:0}
+.legend b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+.tooltip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12px;padding:6px 9px;border-radius:7px;z-index:100;opacity:0;transition:opacity .08s;white-space:nowrap;box-shadow:var(--shadow)}
+
+.reqlist{display:flex;flex-direction:column;gap:10px}
+.reqcard{border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
+.reqhead{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;flex-wrap:wrap}
+.reqhead .id{font-weight:800;font-size:13px;font-family:"Manrope",sans-serif}
+.reqhead .meta{color:var(--ink-faint);font-size:12px}
+.reqhead .amt{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums}
+.reqhead .chev{color:var(--ink-faint);transition:transform .15s}
+.reqcard.open .chev{transform:rotate(90deg)}
+.reqbody{border-top:1px solid var(--border);padding:14px;display:none}
+.reqcard.open .reqbody{display:block}
+.kv{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:12.5px;margin-bottom:12px}
+@media (max-width:760px){.kv{grid-template-columns:repeat(2,1fr)}}
+.kv .k{color:var(--ink-faint);text-transform:uppercase;font-size:10.5px;font-weight:700;letter-spacing:.03em}
+.kv .vv{margin-top:2px;font-weight:600}
+.note-box{background:var(--surface-2);border-radius:9px;padding:10px 12px;font-size:13px;margin-bottom:12px;white-space:pre-wrap}
+.history{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.hrow{display:flex;gap:8px;font-size:12px;color:var(--ink-muted)}
+.hrow .t{color:var(--ink-faint);white-space:nowrap}
+.opsbox{background:var(--accent-soft);border-radius:10px;padding:12px;margin-top:4px}
+.opsbox label{color:var(--ink-muted)}
+
+.filterbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.filterbar .field{width:160px}
+.filterbar .field.grow{flex:1;min-width:180px}
+
+.empty{text-align:center;padding:44px 20px;color:var(--ink-muted)}
+.empty .big{font-size:34px;margin-bottom:8px}
+
+.loginwrap{min-height:calc(100vh - 40px);display:flex;align-items:center;justify-content:center;padding:20px 0}
+.loginbox{width:100%;max-width:380px}
+.loginbox .brand{justify-content:center;font-size:20px;margin-bottom:4px}
+.loginbox .tag{text-align:center;color:var(--ink-muted);font-size:13px;margin-bottom:22px}
+.switcher{display:flex;background:var(--surface-2);border-radius:9px;padding:3px;margin-bottom:16px}
+.switcher button{flex:1;border:none;background:transparent;padding:8px;border-radius:7px;font-weight:700;font-size:13px;color:var(--ink-muted);cursor:pointer}
+.switcher button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.roletoggle{display:flex;gap:8px}
+.roletoggle label{flex:1;border:1px solid var(--border);border-radius:9px;padding:10px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:var(--ink-muted);margin:0}
+.roletoggle input{display:none}
+.roletoggle label.checked{border-color:var(--accent);background:var(--accent-soft)}
+.formerr{color:var(--bad);font-size:12.5px;min-height:16px;margin-top:4px}
+.banner{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:12px 14px;font-size:13px;display:flex;gap:10px;align-items:flex-start}
+.banner.bad{background:var(--bad-soft);color:var(--bad)}
+.toast{position:fixed;bottom:max(18px, env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:13px;font-weight:600;box-shadow:var(--shadow);z-index:200;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+
+table.teamtbl{width:100%;border-collapse:collapse;font-size:13px}
+table.teamtbl th{text-align:left;color:var(--ink-faint);font-size:11px;text-transform:uppercase;letter-spacing:.03em;padding:8px 10px;border-bottom:1px solid var(--border)}
+table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+.tablewrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ========================================================================
+   CONFIG — fill in API_URL after deploying the Apps Script Web App.
+   ======================================================================== */
+var API_URL = "REPLACE_WITH_APPS_SCRIPT_EXEC_URL";
+var API_KEY = "daQs4oFH4psq9jc9p8d669jFtm1Q7tBq";
+
+/* ---------- constants ---------- */
+var REASONS = [
+  "Change of Mind","Found a Better Price Elsewhere","Delivery Delay / Long Lead Time",
+  "Item Out of Stock / Discontinued","Wrong Item Ordered","Wrong Size / Does Not Fit Space",
+  "Duplicate Order","Found a Better Design / Alternative","Product Quality Concern (Reviews/Photos)",
+  "Payment Failed / Payment Issue","Can No Longer Afford the Item","Relocating / Moving Plans Changed",
+  "Assembly / Installation Concerns","Ordered by Mistake","Prefers Exchange Instead of Cancellation",
+  "Delivery Address Problem","Suspected Fraudulent Order","Other (Specify in Notes)"
+];
+var REGIONS = [
+  {code:"UAE",label:"United Arab Emirates"},
+  {code:"KSA",label:"Saudi Arabia"},
+  {code:"QAT",label:"Qatar"},
+  {code:"OMN",label:"Oman"}
+];
+var REFUND_METHODS = ["Same Payment Method","Credit Note"];
+var RETAIN_OPTIONS = ["Retained","Not Retained"];
+var STATUS = {
+  pending:  {label:"Pending Review", cls:"pending"},
+  approved: {label:"Approved & Sent to the Store", cls:"approved"},
+  sent:     {label:"Sent to the Store", cls:"sent"}
+};
+
+/* ---------- tiny helpers ---------- */
+function esc(s){ s = (s==null?"":String(s)); var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+function $(sel,root){ return (root||document).querySelector(sel); }
+function $all(sel,root){ return Array.prototype.slice.call((root||document).querySelectorAll(sel)); }
+function on(root,evt,sel,fn){ root.addEventListener(evt,function(e){ var t=e.target.closest(sel); if(t && root.contains(t)) fn(e,t); }); }
+function pad2(n){ return n<10?"0"+n:""+n; }
+function fmtDate(ts){ if(!ts) return "—"; var d=new Date(ts); if(isNaN(d.getTime())) return String(ts); return d.toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"numeric"})+" "+pad2(d.getHours())+":"+pad2(d.getMinutes()); }
+function fmtMoney(n){ n = Number(n)||0; return n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function toast(msg){
+  var el = $("#toast"); el.textContent = msg; el.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(function(){ el.classList.remove("show"); }, 2800);
+}
+function startOfDay(d){ var x=new Date(d); x.setHours(0,0,0,0); return x.getTime(); }
+function startOfMonth(d){ var x=new Date(d); x.setDate(1); x.setHours(0,0,0,0); return x.getTime(); }
+function toMs(v){ var t = (typeof v==="number") ? v : new Date(v).getTime(); return isNaN(t) ? 0 : t; }
+
+/* ---------- API client (Google Apps Script backend, no login required to call) ---------- */
+function apiCall(action, payload){
+  var body = Object.assign({ action: action, key: API_KEY }, payload||{});
+  return fetch(API_URL, { method:"POST", body: JSON.stringify(body) })
+    .then(function(r){ return r.json(); })
+    .then(function(j){ if(!j || !j.ok) throw new Error((j&&j.error)||"request_failed"); return j.data; });
+}
+function callerCred(){ return state.currentUser ? { username: state.currentUser.username, password: state.currentUser.password } : null; }
+
+/* ---------- state ---------- */
+var state = {
+  currentUser:null,
+  users:[],
+  requests:[],
+  route:"new",
+  authMode:"login",
+  dashScope:"month",
+  openCard:null,
+  filters:{ q:"", status:"", orderType:"", region:"" }
+};
+var pollTimer=null;
+function startPolling(){ stopPolling(); pollTimer=setInterval(function(){ refreshAll(true); }, 12000); }
+function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+
+function refreshAll(silent){
+  if(!state.currentUser) return Promise.resolve();
+  return apiCall("getAll", { caller: callerCred() }).then(function(data){
+    state.users = data.users || [];
+    state.requests = (data.requests || []).map(function(r){ r.createdAt = toMs(r.createdAt); r.updatedAt = toMs(r.updatedAt); return r; });
+    var me = state.users.filter(function(u){ return u.username === state.currentUser.username; })[0];
+    if(me) state.currentUser.role = me.role;
+    render();
+  }).catch(function(e){ if(!silent) toast("Couldn't refresh: "+e.message); });
+}
+
+/* ---------- boot ---------- */
+async function boot(){
+  initGlobalEvents();
+  render();
+  if(API_URL.indexOf("REPLACE_WITH") === 0){ state.configMissing = true; render(); return; }
+  try{
+    var saved = JSON.parse(localStorage.getItem("ph_cancel_session")||"null");
+    if(saved && saved.username && saved.password){
+      await doLogin(saved.username, saved.password, true);
+    }
+  }catch(e){}
+  render();
+}
+
+/* ---------- auth actions ---------- */
+async function doRegister(username, role){
+  try{
+    var res = await apiCall("register", { username:username, role:role });
+    state.currentUser = { username: res.username, role: res.role, password: "12345" };
+    persistSession();
+    state.route = (res.role==="agent") ? "new" : "requests";
+    toast(res.isFirst ? "Account created — you're the administrator. Default password is 12345." : "Account created. Default password is 12345.");
+    startPolling();
+    await refreshAll(true);
+    render();
+  }catch(e){ setAuthErr(authErrText(e.message)); }
+}
+
+async function doLogin(username, password, silentRestore){
+  username = (username||"").trim().toLowerCase();
+  if(!username || !password){ if(!silentRestore) setAuthErr("Enter your username and password."); return; }
+  try{
+    var res = await apiCall("login", { username:username, password:password });
+    state.currentUser = { username: res.username, role: res.role, password: password };
+    persistSession();
+    state.route = (res.role==="agent") ? "new" : "requests";
+    startPolling();
+    await refreshAll(true);
+    render();
+  }catch(e){
+    if(!silentRestore) setAuthErr(authErrText(e.message));
+    else { try{ localStorage.removeItem("ph_cancel_session"); }catch(e2){} }
+  }
+}
+function authErrText(code){
+  if(code==="no_account") return "No account with that username. Create one below.";
+  if(code==="wrong_password") return "Wrong password.";
+  if(code==="username_taken") return "That username is already taken. Try logging in instead.";
+  if(code==="bad_username") return "Choose a username with at least 2 characters.";
+  return "Couldn't reach the server. Check your connection and try again.";
+}
+function setAuthErr(msg){ var e=$("#authErr"); if(e) e.textContent = msg; }
+function persistSession(){ try{ localStorage.setItem("ph_cancel_session", JSON.stringify({username:state.currentUser.username, password:state.currentUser.password})); }catch(e){} }
+function doLogout(){ stopPolling(); state.currentUser=null; try{ localStorage.removeItem("ph_cancel_session"); }catch(e){} state.route="new"; render(); }
+
+async function changePassword(current,next){
+  try{
+    await apiCall("changePassword", { caller: callerCred(), next: next });
+    state.currentUser.password = next;
+    persistSession();
+    toast("Password updated.");
+  }catch(e){ toast(e.message==="wrong_password" ? "Current password is incorrect." : "Couldn't update password."); }
+}
+async function adminSetRole(username, role){
+  try{ await apiCall("adminSetRole", { caller: callerCred(), target: username, role: role }); toast("Role updated for "+username+"."); refreshAll(true); }
+  catch(e){ toast("Couldn't update role."); }
+}
+async function adminResetPassword(username){
+  try{ await apiCall("adminResetPassword", { caller: callerCred(), target: username }); toast("Password reset to 12345 for "+username+"."); }
+  catch(e){ toast("Couldn't reset password."); }
+}
+
+/* ---------- request actions ---------- */
+async function submitRequest(form){
+  var orderType = form.orderType;
+  var errs = [];
+  if(!orderType) errs.push("Order Type");
+  if(orderType==="Online" && !form.webOrderNumber.trim()) errs.push("Web Order Number");
+  if(!form.lnOrder.trim()) errs.push("LN Order");
+  if(!form.region) errs.push("Region");
+  if(!form.amount || isNaN(parseFloat(form.amount))) errs.push("Amount");
+  if(!form.reason) errs.push("Reason of Cancellation");
+  if(!form.note.trim()) errs.push("Note");
+  if(!form.refundMethod) errs.push("Amount Status / Refund Method");
+  if(!form.retain) errs.push("Retain / Not Retain");
+  if(errs.length){ toast("Missing required field: "+errs[0]); return false; }
+  var data = {
+    webOrderNumber: orderType==="Online" ? form.webOrderNumber.trim() : "",
+    lnOrder: form.lnOrder.trim(), orderType: orderType, region: form.region,
+    amount: parseFloat(form.amount), reason: form.reason, note: form.note.trim(),
+    refundMethod: form.refundMethod, retain: form.retain
+  };
+  try{
+    var res = await apiCall("submitRequest", { caller: callerCred(), data: data });
+    toast("Cancellation request "+res.id+" submitted.");
+    await refreshAll(true);
+    return true;
+  }catch(e){ toast("Couldn't submit the request. Try again."); return false; }
+}
+async function updateStatus(id, status, remark){
+  try{
+    await apiCall("updateStatus", { caller: callerCred(), id:id, status:status, remark:remark||"" });
+    toast("Status updated: "+STATUS[status].label);
+    await refreshAll(true);
+  }catch(e){ toast("Couldn't update status."); }
+}
+
+/* ---------- derived data ---------- */
+function canAct(){ return state.currentUser && (state.currentUser.role==="operations" || state.currentUser.role==="admin"); }
+function isAdmin(){ return state.currentUser && state.currentUser.role==="admin"; }
+function scopedRequests(scope){
+  var now=Date.now(), from;
+  if(scope==="today") from = startOfDay(now);
+  else if(scope==="month") from = startOfMonth(now);
+  else from = 0;
+  return state.requests.filter(function(r){ return r.createdAt >= from; });
+}
+function filteredRequests(){
+  var f = state.filters;
+  return state.requests.slice().sort(function(a,b){ return b.createdAt - a.createdAt; }).filter(function(r){
+    if(f.status && r.status!==f.status) return false;
+    if(f.orderType && r.orderType!==f.orderType) return false;
+    if(f.region && r.region!==f.region) return false;
+    if(f.q){
+      var q=f.q.toLowerCase();
+      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.note,r.agent].join(" ").toLowerCase();
+      if(hay.indexOf(q)===-1) return false;
+    }
+    return true;
+  });
+}
+function countBy(list, fn){ var m={}; list.forEach(function(r){ var k=fn(r); m[k]=(m[k]||0)+1; }); return m; }
+
+/* ---------- global event delegation (bound once) ---------- */
+function initGlobalEvents(){
+  document.addEventListener("click", function(e){
+    var t;
+    if(t = e.target.closest(".switcher button")){ state.authMode = t.dataset.mode; render(); return; }
+    if(t = e.target.closest(".roletoggle label")){
+      $all(".roletoggle label").forEach(function(l){ l.classList.remove("checked"); });
+      t.classList.add("checked");
+      return;
+    }
+    if(t = e.target.closest(".tab")){ state.route = t.dataset.route; render(); return; }
+    if(t = e.target.closest(".scopebar button")){ state.dashScope = t.dataset.scope; render(); return; }
+    if(t = e.target.closest("#exportBtn")){ exportCsv(); return; }
+    if(t = e.target.closest("[data-reset]")){ adminResetPassword(t.dataset.reset); return; }
+    if(t = e.target.closest("[data-act]")){
+      var id = t.dataset.id, act = t.dataset.act;
+      var card = t.closest(".reqcard");
+      var remark = card && card.querySelector(".opsRemark") ? card.querySelector(".opsRemark").value : "";
+      updateStatus(id, act, remark);
+      return;
+    }
+    if(t = e.target.closest("[data-toggle]")){
+      if(e.target.closest("textarea,button")) return;
+      state.openCard = (state.openCard === t.dataset.toggle) ? null : t.dataset.toggle;
+      render();
+      return;
+    }
+  });
+  document.addEventListener("change", function(e){
+    var t;
+    if(t = e.target.closest(".roleSel")){ adminSetRole(t.dataset.u, t.value); return; }
+  });
+}
+
+/* ---------- render root (preserve focus/selection across re-renders) ---------- */
+function render(){
+  var active = document.activeElement, activeId = active && active.id, selStart, selEnd;
+  if(activeId && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")){
+    try{ selStart = active.selectionStart; selEnd = active.selectionEnd; }catch(e){}
+  }
+  renderInner();
+  if(activeId){
+    var el = document.getElementById(activeId);
+    if(el){ el.focus(); if(selStart != null && el.setSelectionRange){ try{ el.setSelectionRange(selStart, selEnd); }catch(e){} } }
+  }
+}
+function renderInner(){
+  var app = $("#app");
+  if(!app) return;
+  if(state.configMissing){
+    app.innerHTML = '<div class="loginwrap"><div class="card loginbox">'+
+      '<div class="brand"><span class="mark">PH</span><span>Pan Home Cancel Desk</span></div>'+
+      '<div class="banner bad" style="margin-top:14px">This page isn\'t connected to its data source yet (API_URL is unset in the page source).</div>'+
+      '</div></div>';
+    return;
+  }
+  if(!state.currentUser){
+    app.innerHTML = renderAuth();
+    wireAuth();
+    return;
+  }
+  app.innerHTML = renderShell();
+  wireShell();
+}
+
+/* ---------- AUTH VIEW ---------- */
+function renderAuth(){
+  var mode = state.authMode;
+  return '<div class="loginwrap"><div class="loginbox">'+
+    '<div class="brand"><span class="mark">PH</span><span>Pan Home</span></div>'+
+    '<div class="tag">Cancellation Request Desk</div>'+
+    '<div class="card">'+
+    '<div class="switcher">'+
+      '<button data-mode="login" class="'+(mode==="login"?"active":"")+'">Log in</button>'+
+      '<button data-mode="register" class="'+(mode==="register"?"active":"")+'">Create account</button>'+
+    '</div>'+
+    (mode==="login" ? renderLoginForm() : renderRegisterForm())+
+    '<div class="formerr" id="authErr"></div>'+
+    '</div></div></div>';
+}
+function renderLoginForm(){
+  return '<form id="loginForm">'+
+    '<div class="field" style="margin-bottom:12px"><label>Username</label><input type="text" name="username" autocomplete="username" required></div>'+
+    '<div class="field" style="margin-bottom:16px"><label>Password</label><input type="password" name="password" autocomplete="current-password" required></div>'+
+    '<button class="btn primary" style="width:100%;justify-content:center" type="submit">Log in</button>'+
+    '</form>'+
+    '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">New employees start with the password <b>12345</b>, then change it under Account.</p>';
+}
+function renderRegisterForm(){
+  return '<form id="registerForm">'+
+    '<div class="field" style="margin-bottom:12px"><label>Choose a username</label><input type="text" name="username" required placeholder="e.g. sara.ahmed"></div>'+
+    '<div class="field" style="margin-bottom:6px"><label>You work in</label></div>'+
+    '<div class="roletoggle" style="margin-bottom:16px">'+
+      '<label class="checked" data-role="agent"><input type="radio" name="role" value="agent" checked><span>Agent<br><small style="font-weight:400">Call center / sales</small></span></label>'+
+      '<label data-role="operations"><input type="radio" name="role" value="operations"><span>Operations<br><small style="font-weight:400">Order fulfilment</small></span></label>'+
+    '</div>'+
+    '<button class="btn primary" style="width:100%;justify-content:center" type="submit">Create account</button>'+
+    '</form>'+
+    '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">Your password starts as <b>12345</b>. Change it any time from Account.</p>';
+}
+function wireAuth(){
+  var lf = $("#loginForm");
+  if(lf) lf.addEventListener("submit", function(e){ e.preventDefault(); doLogin(lf.username.value, lf.password.value); });
+  var rf = $("#registerForm");
+  if(rf) rf.addEventListener("submit", function(e){ e.preventDefault(); var role = rf.querySelector('input[name=role]:checked').value; doRegister(rf.username.value, role); });
+}
+
+/* ---------- SHELL ---------- */
+function renderShell(){
+  var u = state.currentUser;
+  var tabs = [["new","New Request"],["requests","Requests"],["dashboard","Dashboard"],["account","Account"]];
+  if(isAdmin()) tabs.push(["team","Team"]);
+  var initials = (u.username||"?").slice(0,2).toUpperCase();
+  return '<div class="topbar">'+
+    '<div class="brand"><span class="mark">PH</span><span>Cancel Desk</span></div>'+
+    '<div class="tabs">'+ tabs.map(function(t){ return '<button class="tab '+(state.route===t[0]?"active":"")+'" data-route="'+t[0]+'">'+t[1]+'</button>'; }).join("") +'</div>'+
+    '<div class="who"><div class="avatar">'+esc(initials)+'</div><div><div style="font-size:13px;font-weight:700">'+esc(u.username)+'</div></div>'+
+    '<span class="rolepill">'+esc(u.role)+'</span>'+
+    '<button class="linkbtn" id="logoutBtn">Log out</button></div>'+
+    '</div>'+
+    '<main><div class="view">'+ renderRoute() +'</div></main>';
+}
+function wireShell(){
+  var lb = $("#logoutBtn"); if(lb) lb.addEventListener("click", doLogout);
+  if(state.route==="new") wireNewRequest();
+  if(state.route==="requests") wireRequests();
+  if(state.route==="dashboard") wireDashboard();
+  if(state.route==="account") wireAccount();
+}
+function renderRoute(){
+  if(state.route==="new") return renderNewRequest();
+  if(state.route==="requests") return renderRequests();
+  if(state.route==="dashboard") return renderDashboard();
+  if(state.route==="account") return renderAccount();
+  if(state.route==="team" && isAdmin()) return renderTeam();
+  return renderNewRequest();
+}
+
+/* ---------- NEW REQUEST ---------- */
+function renderNewRequest(){
+  var regionOpts = REGIONS.map(function(r){ return '<option value="'+r.code+'">'+esc(r.label)+' ('+r.code+')</option>'; }).join("");
+  var reasonOpts = REASONS.map(function(r){ return '<option value="'+esc(r)+'">'+esc(r)+'</option>'; }).join("");
+  return '<div class="card" style="max-width:760px">'+
+    '<h2>New Cancellation Request</h2>'+
+    '<p class="sub">Submitting as <b>'+esc(state.currentUser.username)+'</b> · every field below is required for the order type you pick.</p>'+
+    '<form id="newReqForm">'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Order Type *</label><select name="orderType" id="orderTypeSel"><option value="">Select…</option><option value="Store">Store</option><option value="Online">Online</option></select></div>'+
+        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" name="webOrderNumber" placeholder="e.g. WEB-10029384"></div>'+
+      '</div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>LN Order Number *</label><input type="text" name="lnOrder" placeholder="e.g. LN-559021"></div>'+
+        '<div class="field"><label>Region *</label><select name="region"><option value="">Select…</option>'+regionOpts+'</select></div>'+
+      '</div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Amount (AED/local) *</label><input type="number" step="0.01" name="amount" placeholder="0.00"></div>'+
+        '<div class="field"><label>Reason of Cancellation *</label><select name="reason"><option value="">Select…</option>'+reasonOpts+'</select></div>'+
+      '</div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Agent Name</label><input type="text" value="'+esc(state.currentUser.username)+'" disabled></div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Amount Status — Refund Via *</label><select name="refundMethod"><option value="">Select…</option>'+
+          REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("")+
+        '</select></div>'+
+        '<div class="field"><label>Retain / Not Retain *</label><select name="retain"><option value="">Select…</option>'+
+          RETAIN_OPTIONS.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("")+
+        '</select></div>'+
+      '</div>'+
+      '<div class="btnrow"><button class="btn primary" type="submit">Submit request</button></div>'+
+    '</form></div>';
+}
+function wireNewRequest(){
+  var sel = $("#orderTypeSel");
+  function syncWebOrder(){
+    var isOnline = sel.value==="Online";
+    $("#webOrderReq").textContent = isOnline ? "*" : "(not applicable for Store)";
+    var field = $("#webOrderField");
+    var input = field.querySelector("input");
+    field.classList.toggle("na", !isOnline);
+    if(!isOnline) input.value="";
+  }
+  sel.addEventListener("change", syncWebOrder);
+  syncWebOrder();
+  var form = $("#newReqForm");
+  form.addEventListener("submit", async function(e){
+    e.preventDefault();
+    var fd = new FormData(form);
+    var data = {};
+    fd.forEach(function(v,k){ data[k]=v; });
+    data.orderType = sel.value;
+    var ok = await submitRequest(data);
+    if(ok){ form.reset(); syncWebOrder(); }
+  });
+}
+
+/* ---------- REQUESTS LIST ---------- */
+function statusBadge(s){ var d=STATUS[s]||STATUS.pending; return '<span class="badge '+d.cls+'"><span class="dot"></span>'+d.label+'</span>'; }
+function typeBadge(t){ return '<span class="badge '+(t==="Online"?"online":"store")+'">'+esc(t)+'</span>'; }
+function retainBadge(r){ return '<span class="badge '+(r==="Retained"?"retained":"notretained")+'">'+esc(r)+'</span>'; }
+
+function renderRequests(){
+  var list = filteredRequests();
+  var rows = list.length ? list.map(renderReqCard).join("") : (
+    '<div class="empty"><div class="big">🗂️</div><h3 style="margin:0 0 6px">No requests match these filters</h3>'+
+    '<p class="sub" style="margin:0">'+(state.requests.length? "Try clearing a filter." : "Once agents submit cancellation requests, they will appear here.")+'</p></div>'
+  );
+  return '<div class="card">'+
+    '<div class="filterbar" style="margin-bottom:16px">'+
+      '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
+      '<div class="field"><label>Status</label><select id="fStatus"><option value="">All</option>'+
+        Object.keys(STATUS).map(function(k){ return '<option value="'+k+'" '+(state.filters.status===k?"selected":"")+'>'+STATUS[k].label+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Order Type</label><select id="fType"><option value="">All</option><option '+(state.filters.orderType==="Store"?"selected":"")+'>Store</option><option '+(state.filters.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
+      '<div class="field"><label>Region</label><select id="fRegion"><option value="">All</option>'+
+        REGIONS.map(function(r){ return '<option value="'+r.code+'" '+(state.filters.region===r.code?"selected":"")+'>'+r.code+'</option>'; }).join("")+'</select></div>'+
+      '<button class="btn sm" id="exportBtn">Export CSV</button>'+
+    '</div>'+
+    '<div class="reqlist">'+rows+'</div>'+
+    '</div>';
+}
+function renderReqCard(r){
+  var open = state.openCard===r.id;
+  var can = canAct();
+  var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
+  var actions = "";
+  if(can && r.status==="pending"){
+    actions = '<div class="opsbox"><label>Operations remark (optional, visible to the agent)</label>'+
+      '<textarea class="opsRemark" placeholder="e.g. Confirmed with store, stock held."></textarea>'+
+      '<div class="btnrow" style="margin-top:10px">'+
+        '<button class="btn good sm" data-act="approved" data-id="'+r.id+'">Approve &amp; Send to Store</button>'+
+        '<button class="btn info sm" data-act="sent" data-id="'+r.id+'">Send to the Store</button>'+
+      '</div></div>';
+  }
+  var hist = (r.history||[]).slice().reverse().map(function(h){
+    return '<div class="hrow"><span class="t">'+fmtDate(h.at)+'</span><span>'+esc(STATUS[h.status]?STATUS[h.status].label:h.status)+' · '+esc(h.by)+(h.remark?' — '+esc(h.remark):'')+'</span></div>';
+  }).join("");
+  return '<div class="reqcard '+(open?"open":"")+'" data-id="'+r.id+'">'+
+    '<div class="reqhead" data-toggle="'+r.id+'">'+
+      '<span class="id">'+r.id+'</span>'+typeBadge(r.orderType)+statusBadge(r.status)+
+      '<span class="meta">'+esc(r.agent)+' · '+fmtDate(r.createdAt)+'</span>'+
+      '<span class="amt num">'+fmtMoney(r.amount)+'</span>'+
+      '<span class="chev">›</span>'+
+    '</div>'+
+    '<div class="reqbody">'+
+      '<div class="kv">'+
+        '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber):"N/A — Store order")+'</div></div>'+
+        '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+'</div></div>'+
+        '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
+        '<div><div class="k">Reason</div><div class="vv">'+esc(r.reason)+'</div></div>'+
+        '<div><div class="k">Refund Via</div><div class="vv">'+esc(r.refundMethod)+'</div></div>'+
+        '<div><div class="k">Retention</div><div class="vv">'+retainBadge(r.retain)+'</div></div>'+
+        '<div><div class="k">Agent</div><div class="vv">'+esc(r.agent)+'</div></div>'+
+        '<div><div class="k">Submitted</div><div class="vv">'+fmtDate(r.createdAt)+'</div></div>'+
+      '</div>'+
+      '<div class="note-box">'+esc(r.note)+'</div>'+
+      '<div class="history">'+hist+'</div>'+
+      actions+
+    '</div></div>';
+}
+function wireRequests(){
+  $("#fQ").addEventListener("input", function(){ state.filters.q=this.value; render(); });
+  $("#fStatus").addEventListener("change", function(){ state.filters.status=this.value; render(); });
+  $("#fType").addEventListener("change", function(){ state.filters.orderType=this.value; render(); });
+  $("#fRegion").addEventListener("change", function(){ state.filters.region=this.value; render(); });
+}
+function exportCsv(){
+  var list = filteredRequests();
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","region","amount","reason","note","refundMethod","retain","status"];
+  var head = cols.join(",");
+  var rows = list.map(function(r){
+    return cols.map(function(c){
+      var v = c==="createdAt" ? fmtDate(r.createdAt) : (c==="status" ? STATUS[r.status].label : (r[c]==null?"":r[c]));
+      v = String(v).replace(/"/g,'""');
+      return '"'+v+'"';
+    }).join(",");
+  });
+  var csv = head+"\n"+rows.join("\n");
+  var blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = "pan-home-cancellations.csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+}
+
+/* ---------- DASHBOARD ---------- */
+function renderDashboard(){
+  var scope = state.dashScope;
+  var list = scopedRequests(scope);
+  var total = list.length;
+  var totalAmt = list.reduce(function(s,r){ return s+(Number(r.amount)||0); },0);
+  var retained = list.filter(function(r){ return r.retain==="Retained"; }).length;
+  var processed = list.filter(function(r){ return r.status!=="pending"; }).length;
+  var retRate = total? Math.round(retained/total*100) : 0;
+  var procRate = total? Math.round(processed/total*100) : 0;
+
+  var byReason = countBy(list, function(r){ return r.reason; });
+  var byRegion = countBy(list, function(r){ return (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region; });
+  var byAgent  = countBy(list, function(r){ return r.agent; });
+  var byType = countBy(list, function(r){ return r.orderType; });
+  var byRefund = countBy(list, function(r){ return r.refundMethod; });
+  var byRetain = countBy(list, function(r){ return r.retain; });
+  var byStatus = countBy(list, function(r){ return STATUS[r.status]?STATUS[r.status].label:r.status; });
+
+  var trendBuckets = buildTrend(list, scope);
+
+  return ''+
+  '<div class="card" style="padding-bottom:10px">'+
+    '<div class="btnrow" style="justify-content:space-between">'+
+      '<div><h2 style="margin:0">Dashboard</h2><p class="sub" style="margin:2px 0 0">Analytics across every submitted request (refreshes automatically).</p></div>'+
+      '<div class="scopebar">'+
+        ["today","month","all"].map(function(s){ return '<button data-scope="'+s+'" class="'+(scope===s?"active":"")+'">'+({today:"Today",month:"This Month",all:"All Time"}[s])+'</button>'; }).join("")+
+      '</div>'+
+    '</div>'+
+  '</div>'+
+  '<div class="kpis">'+
+    kpi("Requests", total, scopeLabel(scope))+
+    kpi("Cancelled Value", fmtMoney(totalAmt), "sum of amounts")+
+    kpi("Retention Rate", retRate+"%", retained+" of "+total+" retained")+
+    kpi("Processed", procRate+"%", processed+" moved past pending")+
+  '</div>'+
+  '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":"Monthly, last 12 months"))+'</p>'+
+    renderTrendSVG(trendBuckets)+
+  '</div>'+
+  '<div class="chartgrid">'+
+    chartCard("Order Type", donutSVG(toPairs(byType),{"Store":"cat-1","Online":"cat-2"}))+
+    chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4"}))+
+  '</div>'+
+  '<div class="chartgrid">'+
+    chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
+    chartCard("Request Status", donutSVG(toPairs(byStatus),{"Pending Review":"warn","Approved & Sent to the Store":"good","Sent to the Store":"info"}))+
+  '</div>'+
+  '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+'</p>'+ hbarList(byReason,8) +'</div>'+
+  '<div class="chartgrid">'+
+    chartCard("By Region", hbarList(byRegion,6))+
+    chartCard("By Agent", hbarList(byAgent,6))+
+  '</div>';
+}
+function scopeLabel(s){ return s==="today"?"today":(s==="month"?"this month":"all time"); }
+function kpi(lbl,val,sub){ return '<div class="kpi"><div class="lbl">'+lbl+'</div><div class="val num">'+val+'</div><div class="sub">'+sub+'</div></div>'; }
+function chartCard(title,inner){ return '<div class="card"><h2 style="font-size:14.5px">'+title+'</h2>'+inner+'</div>'; }
+function toPairs(m){ return Object.keys(m).map(function(k){ return {label:k, value:m[k]}; }).sort(function(a,b){return b.value-a.value;}); }
+
+function hbarList(m, limit){
+  var pairs = toPairs(m).slice(0, limit||10);
+  if(!pairs.length) return '<p class="sub">No data yet.</p>';
+  var max = Math.max.apply(null, pairs.map(function(p){return p.value;}));
+  return '<div class="hbarlist">'+ pairs.map(function(p){
+    var pct = max? Math.max(4, Math.round(p.value/max*100)) : 0;
+    return '<div class="hbarrow"><div class="lbl" title="'+esc(p.label)+'">'+esc(p.label)+'</div>'+
+      '<div class="hbartrack"><div class="hbarfill" style="width:'+pct+'%"></div></div>'+
+      '<div class="v num">'+p.value+'</div></div>';
+  }).join("") +'</div>';
+}
+
+var FALLBACK_CATS = ["cat-1","cat-2","cat-3","cat-4","cat-5","cat-6"];
+function colorForLabel(label, colorMap, fallbackIndex){
+  if(colorMap && colorMap[label]) return "var(--"+colorMap[label]+")";
+  return "var(--"+FALLBACK_CATS[fallbackIndex%FALLBACK_CATS.length]+")";
+}
+function donutSVG(pairs, colorMap){
+  if(!pairs.length) return '<p class="sub">No data yet.</p>';
+  var total = pairs.reduce(function(s,p){return s+p.value;},0);
+  if(!total) return '<p class="sub">No data yet.</p>';
+  var R=58, C=2*Math.PI*R, gap=3, circ="";
+  var offset=0;
+  pairs.forEach(function(p,i){
+    var color = colorForLabel(p.label, colorMap, i);
+    var frac = p.value/total;
+    var len = Math.max(0, frac*C - gap);
+    circ += '<circle cx="90" cy="90" r="'+R+'" fill="none" stroke="'+color+'" stroke-width="22" stroke-dasharray="'+len+' '+(C-len)+'" stroke-dashoffset="'+(-offset)+'" transform="rotate(-90 90 90)"></circle>';
+    offset += frac*C;
+  });
+  var legend = pairs.map(function(p,i){
+    var color = colorForLabel(p.label, colorMap, i);
+    var pct = Math.round(p.value/total*100);
+    return '<div class="item"><span class="sw" style="background:'+color+'"></span>'+esc(p.label)+' <b>'+p.value+'</b> ('+pct+'%)</div>';
+  }).join("");
+  return '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">'+
+    '<svg width="140" height="140" viewBox="0 0 180 180"><g>'+circ+'</g>'+
+    '<text x="90" y="86" text-anchor="middle" font-size="26" font-weight="800" fill="var(--ink)" font-family="Manrope,sans-serif">'+total+'</text>'+
+    '<text x="90" y="104" text-anchor="middle" font-size="11" fill="var(--ink-faint)">total</text>'+
+    '</svg><div class="legend" style="margin-top:0;flex-direction:column;gap:7px">'+legend+'</div></div>';
+}
+
+function buildTrend(list, scope){
+  var buckets = [];
+  if(scope==="today"){
+    for(var h=0;h<24;h++){ buckets.push({label:(h%6===0?pad2(h)+":00":""), key:h, value:0}); }
+    list.forEach(function(r){ var h=new Date(r.createdAt).getHours(); buckets[h].value++; });
+  } else if(scope==="month"){
+    var days = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
+    for(var d=1; d<=days; d++){ buckets.push({label:(d%5===0||d===1?String(d):""), key:d, value:0}); }
+    list.forEach(function(r){ var d=new Date(r.createdAt).getDate(); buckets[d-1].value++; });
+  } else {
+    var now=new Date();
+    var names=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    for(var i=11;i>=0;i--){ var dt=new Date(now.getFullYear(), now.getMonth()-i, 1); buckets.push({label:names[dt.getMonth()], key:dt.getFullYear()+"-"+dt.getMonth(), value:0}); }
+    var idx={}; buckets.forEach(function(b,i2){ idx[b.key]=i2; });
+    list.forEach(function(r){ var dt=new Date(r.createdAt); var k=dt.getFullYear()+"-"+dt.getMonth(); if(idx[k]!=null) buckets[idx[k]].value++; });
+  }
+  return buckets;
+}
+function renderTrendSVG(buckets){
+  if(!buckets.length) return '<p class="sub">No data yet.</p>';
+  var max = Math.max(1, Math.max.apply(null, buckets.map(function(b){return b.value;})));
+  var W=880, H=180, padL=6, padB=22, padT=10, n=buckets.length;
+  var bw = (W-padL*2)/n;
+  var bars = buckets.map(function(b,i){
+    var h = Math.round((b.value/max) * (H-padB-padT));
+    var x = padL + i*bw;
+    var y = H-padB-h;
+    var bwReal = Math.max(2, bw-2);
+    return '<rect class="trbar" data-v="'+b.value+'" x="'+(x+1)+'" y="'+y+'" width="'+bwReal+'" height="'+Math.max(h,2)+'" rx="2" fill="var(--accent)" opacity="0.9"></rect>';
+  }).join("");
+  var labels = buckets.map(function(b,i){
+    if(!b.label) return "";
+    var x = padL + i*bw + bw/2;
+    return '<text x="'+x+'" y="'+(H-6)+'" text-anchor="middle" font-size="9.5" fill="var(--ink-faint)">'+esc(b.label)+'</text>';
+  }).join("");
+  return '<svg id="trendSvg" width="100%" viewBox="0 0 '+W+' '+H+'" style="overflow:visible;max-width:100%">'+
+    '<line x1="'+padL+'" y1="'+(H-padB)+'" x2="'+(W-padL)+'" y2="'+(H-padB)+'" stroke="var(--border)" stroke-width="1"></line>'+
+    bars+labels+'</svg>';
+}
+function wireDashboard(){
+  var svg = $("#trendSvg");
+  if(svg){
+    on(svg,"mousemove","rect.trbar",function(e,t){
+      var tip=$("#tooltip");
+      tip.textContent = t.dataset.v + " request"+(t.dataset.v==1?"":"s");
+      tip.style.left=(e.clientX+10)+"px"; tip.style.top=(e.clientY-28)+"px"; tip.style.opacity=1;
+    });
+    svg.addEventListener("mouseleave", function(){ $("#tooltip").style.opacity=0; });
+  }
+}
+
+/* ---------- ACCOUNT ---------- */
+function renderAccount(){
+  return '<div class="card" style="max-width:480px">'+
+    '<h2>Account</h2><p class="sub">Signed in as <b>'+esc(state.currentUser.username)+'</b> ('+esc(state.currentUser.role)+')</p>'+
+    '<form id="pwForm">'+
+      '<div class="field" style="margin-bottom:12px"><label>Current password</label><input type="password" name="current" required></div>'+
+      '<div class="field" style="margin-bottom:16px"><label>New password</label><input type="password" name="next" required></div>'+
+      '<button class="btn primary" type="submit">Update password</button>'+
+    '</form></div>';
+}
+function wireAccount(){
+  $("#pwForm").addEventListener("submit", function(e){
+    e.preventDefault();
+    changePassword(this.current.value, this.next.value);
+    this.reset();
+  });
+}
+
+/* ---------- TEAM (admin) ---------- */
+function renderTeam(){
+  var rows = state.users.slice().sort(function(a,b){return a.username.localeCompare(b.username);}).map(function(u){
+    var cnt = state.requests.filter(function(r){return r.agent===u.username;}).length;
+    return '<tr><td>'+esc(u.username)+'</td><td>'+
+      '<select class="roleSel" data-u="'+esc(u.username)+'">'+
+        ["agent","operations","admin"].map(function(r){ return '<option value="'+r+'" '+(u.role===r?"selected":"")+'>'+r+'</option>'; }).join("")+
+      '</select></td><td class="num">'+cnt+'</td><td><button class="btn sm" data-reset="'+esc(u.username)+'">Reset to 12345</button></td></tr>';
+  }).join("");
+  return '<div class="card"><h2>Team</h2><p class="sub">Manage roles and reset passwords.</p>'+
+    '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>Username</th><th>Role</th><th>Requests</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '</div>';
+}
+
+boot();
+})();
+</script>
+</body>
+</html>
