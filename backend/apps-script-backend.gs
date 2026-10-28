@@ -47,7 +47,7 @@ function setup() {
   if (u.getLastRow() === 0) u.appendRow(["username", "password", "role", "createdAt"]);
   var r = ss.getSheetByName("Requests") || ss.insertSheet("Requests");
   if (r.getLastRow() === 0) {
-    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson"]);
+    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items"]);
   }
   var def = ss.getSheetByName("Sheet1");
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 2) ss.deleteSheet(def);
@@ -63,6 +63,17 @@ function migrateAddMobileColumn() {
     r.insertColumnAfter(6); // after column F (lnOrder) -> new column G
     r.getRange(1, 7).setValue("mobile");
   }
+}
+
+/* One-time migration: run this ONCE if your "Requests" tab predates the
+   "source" / "scope" / "items" fields. Appends whichever of the three are
+   missing as new columns at the end — safe to run more than once. */
+function migrateAddSourceScopeItems() {
+  var r = requestsSheet();
+  var lastCol = r.getLastColumn();
+  var headers = r.getRange(1, 1, 1, lastCol).getValues()[0];
+  var toAdd = ["source", "scope", "items"].filter(function (h) { return headers.indexOf(h) === -1; });
+  toAdd.forEach(function (h, i) { r.getRange(1, lastCol + i + 1).setValue(h); });
 }
 
 /* ---------- helpers ---------- */
@@ -144,7 +155,8 @@ function submitRequest(agentUsername, d) {
   var history = [{ status: "pending", by: agentUsername, at: now, remark: "Request submitted" }];
   sh.appendRow([
     id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.mobile || "", d.region,
-    Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "pending", now, JSON.stringify(history)
+    Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "pending", now, JSON.stringify(history),
+    d.source || "", d.scope || "", d.items || ""
   ]);
   return { id: id };
 }
@@ -182,7 +194,8 @@ function getAll() {
       id: rd[j][0], createdAt: rd[j][1], agent: rd[j][2], orderType: rd[j][3],
       webOrderNumber: rd[j][4], lnOrder: rd[j][5], mobile: rd[j][6], region: rd[j][7],
       amount: rd[j][8], reason: rd[j][9], note: rd[j][10], refundMethod: rd[j][11], retain: rd[j][12],
-      status: rd[j][13], updatedAt: rd[j][14], history: history
+      status: rd[j][13], updatedAt: rd[j][14], history: history,
+      source: rd[j][16] || "", scope: rd[j][17] || "", items: rd[j][18] || ""
     });
   }
   return { users: users, requests: requests };

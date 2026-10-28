@@ -206,6 +206,8 @@ var REGIONS = [
   {code:"QAT",label:"Qatar"},
   {code:"OMN",label:"Oman"}
 ];
+var SOURCES = ["Call Center","Care Email","Store"];
+var SCOPES = ["Whole Order","Specific Item(s)"];
 var REFUND_METHODS = ["Same Payment Method","Credit Note"];
 var RETAIN_OPTIONS = ["Retained","Not Retained"];
 var STATUS = {
@@ -348,6 +350,9 @@ async function submitRequest(form){
   if(!form.region) errs.push("Region");
   if(!form.amount || isNaN(parseFloat(form.amount))) errs.push("Amount");
   if(!form.reason) errs.push("Reason of Cancellation");
+  if(!form.source) errs.push("Source of Request");
+  if(!form.scope) errs.push("Cancellation Scope");
+  if(form.scope==="Specific Item(s)" && !form.items.trim()) errs.push("Items to Cancel");
   if(!form.note.trim()) errs.push("Note");
   if(!form.refundMethod) errs.push("Amount Status / Refund Method");
   if(!form.retain) errs.push("Retain / Not Retain");
@@ -356,7 +361,8 @@ async function submitRequest(form){
     webOrderNumber: orderType==="Online" ? form.webOrderNumber.trim() : "",
     lnOrder: form.lnOrder.trim(), mobile: form.mobile.trim(), orderType: orderType, region: form.region,
     amount: parseFloat(form.amount), reason: form.reason, note: form.note.trim(),
-    refundMethod: form.refundMethod, retain: form.retain
+    refundMethod: form.refundMethod, retain: form.retain,
+    source: form.source, scope: form.scope, items: form.scope==="Specific Item(s)" ? form.items.trim() : ""
   };
   try{
     var res = await apiCall("submitRequest", { caller: callerCred(), data: data });
@@ -366,11 +372,46 @@ async function submitRequest(form){
   }catch(e){ toast("Couldn't submit the request. Try again."); return false; }
 }
 async function updateStatus(id, status, remark){
+  var r = state.requests.filter(function(x){ return x.id===id; })[0];
   try{
     await apiCall("updateStatus", { caller: callerCred(), id:id, status:status, remark:remark||"" });
     toast("Status updated: "+STATUS[status].label);
+    if(r) openStoreEmail(r, status, remark);
     await refreshAll(true);
   }catch(e){ toast("Couldn't update status."); }
+}
+
+/* Builds a pre-filled email (subject + body) for the store and opens it in the
+   user's default mail app (Outlook on most corporate Windows machines). */
+function buildMailto(r, status, remark){
+  var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
+  var subject = "Cancellation Request "+r.id+" - "+r.orderType+" - "+STATUS[status].label;
+  var lines = [
+    "Cancellation Request: "+r.id,
+    "Status: "+STATUS[status].label,
+    "Order Type: "+r.orderType,
+    "Web Order Number: "+(r.webOrderNumber||"N/A"),
+    "LN Order Number: "+r.lnOrder,
+    "Mobile Number: "+r.mobile,
+    "Region: "+regionLabel,
+    "Amount: "+fmtMoney(r.amount),
+    "Reason: "+r.reason,
+    "Source of Request: "+(r.source||"—"),
+    "Cancellation Scope: "+(r.scope||"—")+(r.items?(" ("+r.items+")"):""),
+    "Refund Via: "+r.refundMethod,
+    "Retention: "+r.retain,
+    "Note: "+r.note,
+    "Agent: "+r.agent,
+    "Processed by: "+state.currentUser.username+(remark?("\nRemark: "+remark):"")
+  ];
+  return "mailto:?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(lines.join("\n"));
+}
+function openStoreEmail(r, status, remark){
+  try{
+    var a = document.createElement("a");
+    a.href = buildMailto(r, status, remark);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }catch(e){}
 }
 
 /* ---------- derived data ---------- */
@@ -391,7 +432,7 @@ function filteredRequests(){
     if(f.region && r.region!==f.region) return false;
     if(f.q){
       var q=f.q.toLowerCase();
-      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent].join(" ").toLowerCase();
+      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items].join(" ").toLowerCase();
       if(hay.indexOf(q)===-1) return false;
     }
     return true;
@@ -413,6 +454,11 @@ function initGlobalEvents(){
     if(t = e.target.closest(".scopebar button")){ state.dashScope = t.dataset.scope; render(); return; }
     if(t = e.target.closest("#exportBtn")){ exportCsv(); return; }
     if(t = e.target.closest("[data-reset]")){ adminResetPassword(t.dataset.reset); return; }
+    if(t = e.target.closest("[data-mailto]")){
+      var rec = state.requests.filter(function(x){ return x.id===t.dataset.mailto; })[0];
+      if(rec) openStoreEmail(rec, rec.status, "");
+      return;
+    }
     if(t = e.target.closest("[data-act]")){
       var id = t.dataset.id, act = t.dataset.act;
       var card = t.closest(".reqcard");
@@ -561,6 +607,15 @@ function renderNewRequest(){
         '<div class="field"><label>Reason of Cancellation *</label><select name="reason"><option value="">Select…</option>'+reasonOpts+'</select></div>'+
         '<div class="field"><label>Date</label><input type="text" id="dateInput" disabled></div>'+
       '</div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Source of Request *</label><select name="source"><option value="">Select…</option>'+
+          SOURCES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
+        '</select></div>'+
+        '<div class="field"><label>Cancel Order or Item *</label><select name="scope" id="scopeSel"><option value="">Select…</option>'+
+          SCOPES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
+        '</select></div>'+
+      '</div>'+
+      '<div class="field" id="itemsField" hidden style="margin-bottom:14px"><label>Items to Cancel *</label><textarea name="items" placeholder="List the specific item(s) being cancelled…"></textarea></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Agent Name</label><input type="text" value="'+esc(state.currentUser.username)+'" disabled></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
@@ -586,6 +641,16 @@ function wireNewRequest(){
   }
   sel.addEventListener("change", syncWebOrder);
   syncWebOrder();
+
+  var scopeSel = $("#scopeSel");
+  function syncScope(){
+    var isItem = scopeSel.value==="Specific Item(s)";
+    var field = $("#itemsField");
+    field.hidden = !isItem;
+    if(!isItem) field.querySelector("textarea").value="";
+  }
+  scopeSel.addEventListener("change", syncScope);
+  syncScope();
 
   var dateEl = $("#dateInput");
   if(dateEl) dateEl.value = new Date().toLocaleDateString(undefined,{weekday:"short",day:"2-digit",month:"short",year:"numeric"});
@@ -640,6 +705,7 @@ function renderReqCard(r){
   var open = state.openCard===r.id;
   var can = canAct();
   var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
+  var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>' : '';
   var actions = "";
   if(can && r.status==="pending"){
     actions = '<div class="opsbox"><label>Operations remark (optional, visible to the agent)</label>'+
@@ -670,9 +736,13 @@ function renderReqCard(r){
         '<div><div class="k">Retention</div><div class="vv">'+retainBadge(r.retain)+'</div></div>'+
         '<div><div class="k">Agent</div><div class="vv">'+esc(r.agent)+'</div></div>'+
         '<div><div class="k">Submitted</div><div class="vv">'+fmtDate(r.createdAt)+'</div></div>'+
+        '<div><div class="k">Source</div><div class="vv">'+esc(r.source||"—")+'</div></div>'+
+        '<div><div class="k">Scope</div><div class="vv">'+esc(r.scope||"—")+'</div></div>'+
       '</div>'+
+      (r.items ? '<div class="note-box"><b>Items to cancel:</b> '+esc(r.items)+'</div>' : '')+
       '<div class="note-box">'+esc(r.note)+'</div>'+
       '<div class="history">'+hist+'</div>'+
+      emailBtn+
       actions+
     '</div></div>';
 }
@@ -684,7 +754,7 @@ function wireRequests(){
 }
 function exportCsv(){
   var list = filteredRequests();
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","source","scope","items","note","refundMethod","retain","status"];
   var head = cols.join(",");
   var rows = list.map(function(r){
     return cols.map(function(c){
@@ -717,6 +787,7 @@ function renderDashboard(){
   var byRegion = countBy(list, function(r){ return (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region; });
   var byAgent  = countBy(list, function(r){ return r.agent; });
   var byType = countBy(list, function(r){ return r.orderType; });
+  var bySource = countBy(list, function(r){ return r.source || "Unspecified"; });
   var byRefund = countBy(list, function(r){ return r.refundMethod; });
   var byRetain = countBy(list, function(r){ return r.retain; });
   var byStatus = countBy(list, function(r){ return STATUS[r.status]?STATUS[r.status].label:r.status; });
@@ -743,12 +814,13 @@ function renderDashboard(){
   '</div>'+
   '<div class="chartgrid">'+
     chartCard("Order Type", donutSVG(toPairs(byType),{"Store":"cat-1","Online":"cat-2"}))+
-    chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4"}))+
+    chartCard("Source of Request", donutSVG(toPairs(bySource),{"Call Center":"cat-1","Care Email":"cat-5","Store":"cat-2","Unspecified":"cat-6"}))+
   '</div>'+
   '<div class="chartgrid">'+
+    chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4"}))+
     chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
-    chartCard("Request Status", donutSVG(toPairs(byStatus),{"Pending Review":"warn","Approved & Sent to the Store":"good","Sent to the Store":"info"}))+
   '</div>'+
+  chartCard("Request Status", donutSVG(toPairs(byStatus),{"Pending Review":"warn","Approved & Sent to the Store":"good","Sent to the Store":"info"}))+
   '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+'</p>'+ hbarList(byReason,8) +'</div>'+
   '<div class="chartgrid">'+
     chartCard("By Region", hbarList(byRegion,6))+
