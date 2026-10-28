@@ -3,6 +3,8 @@
    (أو احفظه كـ Snippet في DevTools › Sources › Snippets وشغّله بـ Ctrl+Enter) */
 (() => {
   const URL_SEARCH = '/ordering/floor/order-search';
+  // Cancel Desk page URL — update this if the repo/domain changes.
+  const CANCEL_DESK_URL = 'https://shenoapakka-dev.github.io/Breasks/';
   const WAIT_MS = 20000, GAP_MS = 600;
   document.getElementById('cxPanel')?.remove();
 
@@ -60,10 +62,24 @@
     return { Order: order, Result: 'غير موجود / انتهت المهلة' };
   }
 
+  function sendUrl(r) {
+    const u = new URL(CANCEL_DESK_URL);
+    u.searchParams.set('order', r.Order || '');
+    const mobile = String(r.Mobile || '').split('|')[0].trim();
+    if (mobile) u.searchParams.set('mobile', mobile);
+    const amount = String(r.Total || '').replace(/[^\d.]/g, '');
+    if (amount) u.searchParams.set('amount', amount);
+    if (r.Items) u.searchParams.set('items', r.Items);
+    return u.toString();
+  }
   function render() {
-    const t = '<table><tr>' + COLS.map(c => `<th>${c}</th>`).join('') + '</tr>' +
-      rows.map(r => '<tr>' + COLS.map(c => `<td>${(r[c] ?? '').toString().replace(/</g, '&lt;')}</td>`).join('') + '</tr>').join('') + '</table>';
+    const t = '<table><tr>' + COLS.map(c => `<th>${c}</th>`).join('') + '<th>إرسال</th></tr>' +
+      rows.map((r, i) => '<tr>' + COLS.map(c => `<td>${(r[c] ?? '').toString().replace(/</g, '&lt;')}</td>`).join('') +
+        (r.Result === 'OK' ? `<td><button class="g" data-send="${i}">➡ مكتب الإلغاء</button></td>` : '<td></td>') + '</tr>').join('') + '</table>';
     $('cxOut').innerHTML = t;
+    $('cxOut').querySelectorAll('[data-send]').forEach(b => {
+      b.onclick = () => window.open(sendUrl(rows[+b.dataset.send]), '_blank');
+    });
   }
   const toDelim = sep => [COLS, ...rows.map(r => COLS.map(c => r[c] ?? ''))]
     .map(a => a.map(v => { v = String(v); return sep === ',' && /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v.replace(/\t|\n/g, ' '); }).join(sep)).join('\n');

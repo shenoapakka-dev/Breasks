@@ -835,22 +835,18 @@ function renderNewRequest(){
       '<div class="btnrow"><button class="btn primary" type="submit">Submit request</button></div>'+
     '</form></div>'+
   '<div class="card etm-panel">'+
-    '<h2 style="font-size:14.5px">ETM Lookup</h2>'+
-    '<p class="sub">ETM refuses to load inside another page (it rejected the embedded view with a session error), so it has to open in its own tab. Look the order up there, then copy its details into the form on the left.</p>'+
+    '<h2 style="font-size:14.5px">ETM Auto-Fill</h2>'+
+    '<p class="sub">ETM\'s own server refuses to load inside another page — it rejects any embedded/cross-origin view with "Bad Request #400". That is enforced on ETM\'s side and can\'t be bypassed from this page. The working auto-fill path instead runs <b>inside ETM\'s own tab</b> and sends the data here — it fills the whole form, not just one field.</p>'+
+    '<ol style="margin:0 0 12px;padding-left:18px;font-size:12.5px;color:var(--ink-muted)">'+
+      '<li>Open ETM in a tab (buttons below), press F12 → Console tab.</li>'+
+      '<li>Click "Copy auto-fill script" below, paste it into the Console. If Chrome warns about pasting, type <code>allow pasting</code>, press Enter, then paste again.</li>'+
+      '<li>A small panel appears on the ETM page — type the order number(s) there and run it.</li>'+
+      '<li>Next to each fetched order, click <b>"➡ مكتب الإلغاء"</b> — this page opens in a new tab with the order number, mobile, amount and items already filled in.</li>'+
+    '</ol>'+
+    '<button type="button" class="btn primary" id="copyEtmScriptBtn" style="width:100%;justify-content:center;margin-bottom:12px">📋 Copy auto-fill script</button>'+
     '<div class="btnrow" style="flex-direction:column;align-items:stretch;gap:10px">'+
-      '<button type="button" class="btn primary" data-etm="web" style="justify-content:center">Open ETM — Web Order Search ↗</button>'+
-      '<button type="button" class="btn primary" data-etm="ln" style="justify-content:center">Open ETM — LN Order Search ↗</button>'+
-    '</div>'+
-    '<p class="sub" style="margin:10px 0 4px">Testing the :8443 URL as an embed (temporary — tell me what shows below):</p>'+
-    '<iframe src="https://etm.panemirates.ae:8443/ordering/floor/order-search" style="width:100%;height:360px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)"></iframe>'+
-    '<div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">'+
-      '<p class="sub" style="margin:0 0 8px"><b>Bulk lookup (optional):</b> a console script that runs on ETM\'s own page (not ours) to fetch several orders at once and export them as CSV / copy for Excel.</p>'+
-      '<ol style="margin:0 0 10px;padding-left:18px;font-size:12.5px;color:var(--ink-muted)">'+
-        '<li>Open ETM in a tab, then press F12 for DevTools and open the Console tab.</li>'+
-        '<li>Click "Copy bulk-lookup script" below, paste it into the Console, press Enter.</li>'+
-        '<li>A small panel appears on the ETM page — paste order numbers there and run it.</li>'+
-      '</ol>'+
-      '<button type="button" class="btn sm" id="copyEtmScriptBtn">📋 Copy bulk-lookup script</button>'+
+      '<button type="button" class="btn" data-etm="web" style="justify-content:center">Open ETM — Web Order Search ↗</button>'+
+      '<button type="button" class="btn" data-etm="ln" style="justify-content:center">Open ETM — LN Order Search ↗</button>'+
     '</div>'+
   '</div>'+
   '</div>';
@@ -931,12 +927,32 @@ function wireNewRequest(){
 
   /* Optional CTI/CCS screen-pop integration: if your call center system can open this
      page with the caller's number (and region) as URL parameters — e.g.
-     https://.../?mobile=0501234567&region=UAE — those fields are pre-filled automatically. */
+     https://.../?mobile=0501234567&region=UAE — those fields are pre-filled automatically.
+
+     Same mechanism also used by the ETM bulk-fetch console script's "Send to Cancel
+     Desk" button (see etm-bulk-fetch.js): after it scrapes one order from ETM (same-origin,
+     so it's allowed to read the page — ETM itself blocks any cross-origin embed/fetch of
+     its data, which is why that script has to run inside ETM's own tab), it opens this page
+     with ?order=&mobile=&amount=&items= already filled in, so the agent lands here with
+     the whole form pre-filled instead of retyping anything. */
   try{
     var qp = new URLSearchParams(location.search);
-    var mobileEl = $("#mobileInput"), regionEl = $("#regionSel");
+    var mobileEl = $("#mobileInput"), regionEl = $("#regionSel"), amountEl = $("#amountInput");
     if(qp.get("mobile") && mobileEl) mobileEl.value = qp.get("mobile");
     if(qp.get("region") && regionEl){ regionEl.value = qp.get("region").toUpperCase(); syncCurrency(); }
+    var orderQp = qp.get("order");
+    if(orderQp){
+      form.lnOrder.value = orderQp.trim().toUpperCase();
+      detectFromOrderNo();
+      checkDuplicateOrderNo();
+    }
+    if(qp.get("amount") && amountEl){ amountEl.value = qp.get("amount"); }
+    if(qp.get("items")){
+      scopeSel.value = "Specific Item(s)";
+      syncScope();
+      $("#itemsInput").value = qp.get("items");
+    }
+    if(orderQp || qp.get("mobile")) toast("Auto-filled from ETM — check the details then submit.");
   }catch(e){}
 
   form.addEventListener("submit", async function(e){
