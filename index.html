@@ -128,7 +128,6 @@ textarea{resize:vertical;min-height:64px}
 @media (max-width:900px){.chartgrid{grid-template-columns:1fr}}
 .newreq-layout{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
 @media (max-width:980px){.newreq-layout{grid-template-columns:1fr}}
-.etm-panel iframe{display:block}
 .hbarlist{display:flex;flex-direction:column;gap:9px}
 .hbarrow{display:grid;grid-template-columns:150px 1fr 48px;gap:10px;align-items:center;min-width:0}
 .hbarrow .lbl{font-size:12.5px;color:var(--ink-muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -657,11 +656,6 @@ function initGlobalEvents(){
       if(rec) openStoreEmail(rec, rec.status, "");
       return;
     }
-    if(t = e.target.closest("[data-etmview]")){
-      var frame = $("#etmFrame");
-      if(frame) frame.src = ETM_URLS[t.dataset.etmview] || ETM_URLS.web;
-      return;
-    }
     if(t = e.target.closest("[data-etm]")){
       var srcId = t.dataset.etmSrc;
       var val = srcId ? ($("#"+srcId) ? $("#"+srcId).value.trim() : "") : (t.dataset.etmValue||"");
@@ -842,14 +836,11 @@ function renderNewRequest(){
     '</form></div>'+
   '<div class="card etm-panel">'+
     '<h2 style="font-size:14.5px">ETM Lookup</h2>'+
-    '<p class="sub">Look the order up here, then copy its details into the form on the left — ETM can\'t be auto-filled into this page.</p>'+
-    '<div class="btnrow" style="margin-bottom:10px">'+
-      '<button type="button" class="btn sm" data-etmview="web">Web Order Search</button>'+
-      '<button type="button" class="btn sm" data-etmview="ln">LN Order Search</button>'+
-      '<button type="button" class="btn sm ghost" data-etm="ln" style="margin-left:auto">Open in new tab ↗</button>'+
+    '<p class="sub">ETM refuses to load inside another page (it rejected the embedded view with a session error), so it has to open in its own tab. Look the order up there, then copy its details into the form on the left.</p>'+
+    '<div class="btnrow" style="flex-direction:column;align-items:stretch;gap:10px">'+
+      '<button type="button" class="btn primary" data-etm="web" style="justify-content:center">Open ETM — Web Order Search ↗</button>'+
+      '<button type="button" class="btn primary" data-etm="ln" style="justify-content:center">Open ETM — LN Order Search ↗</button>'+
     '</div>'+
-    '<iframe id="etmFrame" src="'+ETM_URLS.web+'" style="width:100%;height:560px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)"></iframe>'+
-    '<p class="sub" style="margin:8px 0 0">If this stays blank, ETM is blocking embedding — use "Open in new tab" instead.</p>'+
   '</div>'+
   '</div>';
 }
