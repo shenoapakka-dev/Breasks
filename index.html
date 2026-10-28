@@ -82,6 +82,9 @@ input[type=text],input[type=number],input[type=password],select,textarea{
 input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
 textarea{resize:vertical;min-height:64px}
 .field{display:flex;flex-direction:column;gap:0;min-width:0}
+.field.invalid label{color:var(--bad)}
+.field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
+.field .err{font-size:11.5px;color:var(--bad);margin-top:4px;min-height:0}
 .field.na input,.field.na select{opacity:.45;pointer-events:none}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .grid.cols2{grid-template-columns:repeat(2,1fr)}
@@ -219,17 +222,17 @@ var REGIONS = [
    Some prefixes are shared across countries (OS, SS) — ambiguous prefixes list every
    match instead of guessing, and the agent picks the right one. */
 var PREFIX_MAP = {
-  WU:[{region:"UAE",branch:"UAE Online"}], BS:[{region:"UAE",branch:"Barsha Store"}],
-  TS:[{region:"UAE",branch:"Zahia Store"}], YS:[{region:"UAE",branch:"Marina Store"}],
-  CS:[{region:"UAE",branch:"DFC Mall Store"}], IS:[{region:"UAE",branch:"Deerfields Mall Store"}],
-  VS:[{region:"UAE",branch:"Festival Plaza Store"}], JS:[{region:"UAE",branch:"FJR Store"}],
-  NS:[{region:"UAE",branch:"Al Ain Store"}],
-  WK:[{region:"KSA",branch:"KSA Online"}], RS:[{region:"KSA",branch:"Riyadh Store"}],
-  WO:[{region:"OMN",branch:"Oman Online"}], GS:[{region:"OMN",branch:"Ghoubrah Store"}],
-  WQ:[{region:"QAT",branch:"Qatar Online"}], LS:[{region:"QAT",branch:"Salwa Store"}],
-  ES:[{region:"QAT",branch:"QDFC Mall Store"}],
-  SS:[{region:"UAE",branch:"Sharjah Store"},{region:"OMN",branch:"Salalah Store"}],
-  OS:[{region:"KSA",branch:"Olaya Store"},{region:"OMN",branch:"Alhail Store"}]
+  WU:[{region:"UAE",branch:"UAE Online",type:"Online"}], BS:[{region:"UAE",branch:"Barsha Store",type:"Store"}],
+  TS:[{region:"UAE",branch:"Zahia Store",type:"Store"}], YS:[{region:"UAE",branch:"Marina Store",type:"Store"}],
+  CS:[{region:"UAE",branch:"DFC Mall Store",type:"Store"}], IS:[{region:"UAE",branch:"Deerfields Mall Store",type:"Store"}],
+  VS:[{region:"UAE",branch:"Festival Plaza Store",type:"Store"}], JS:[{region:"UAE",branch:"FJR Store",type:"Store"}],
+  NS:[{region:"UAE",branch:"Al Ain Store",type:"Store"}],
+  WK:[{region:"KSA",branch:"KSA Online",type:"Online"}], RS:[{region:"KSA",branch:"Riyadh Store",type:"Store"}],
+  WO:[{region:"OMN",branch:"Oman Online",type:"Online"}], GS:[{region:"OMN",branch:"Ghoubrah Store",type:"Store"}],
+  WQ:[{region:"QAT",branch:"Qatar Online",type:"Online"}], LS:[{region:"QAT",branch:"Salwa Store",type:"Store"}],
+  ES:[{region:"QAT",branch:"QDFC Mall Store",type:"Store"}],
+  SS:[{region:"UAE",branch:"Sharjah Store",type:"Store"},{region:"OMN",branch:"Salalah Store",type:"Store"}],
+  OS:[{region:"KSA",branch:"Olaya Store",type:"Store"},{region:"OMN",branch:"Alhail Store",type:"Store"}]
 };
 var SOURCES = ["Call Center","Care Email","Store"];
 var SCOPES = ["Whole Order","Specific Item(s)"];
@@ -401,34 +404,63 @@ async function adminResetPassword(username){
 }
 
 /* ---------- request actions ---------- */
-async function submitRequest(form){
-  var orderType = form.orderType;
-  var errs = [];
-  if(!orderType) errs.push("Order Type");
+function fieldOf(el){ return el ? el.closest(".field") : null; }
+function markField(el, bad){ var f = fieldOf(el); if(f) f.classList.toggle("invalid", !!bad); }
+function clearInvalidFields(){ $all(".field.invalid").forEach(function(f){ f.classList.remove("invalid"); }); }
+
+async function submitRequest(){
+  clearInvalidFields();
   var ORDER_NO_RE = /^[A-Za-z0-9]{9}$/;
+  var orderTypeEl=$("#orderTypeSel"), webEl=$("#webOrderNumberInput"), lnEl=$("#lnOrderInput"),
+      mobileEl=$("#mobileInput"), regionEl=$("#regionSel"), amountEl=$("#amountInput"),
+      reasonEl=$("#reasonSel"), sourceEl=$("#sourceSel"), scopeEl=$("#scopeSel"),
+      itemsEl=$("#itemsInput"), noteEl=$("#noteInput"), refundEl=$("#refundMethodSel"), retainEl=$("#retainSel");
+
+  var orderType = orderTypeEl.value;
+  var firstBad = null;
+  function fail(el){ markField(el, true); if(!firstBad) firstBad = el; }
+
+  if(!orderType) fail(orderTypeEl);
+  var webVal = webEl.value.trim(), lnVal = lnEl.value.trim();
   if(orderType==="Online"){
-    if(!form.webOrderNumber.trim()) errs.push("Web Order Number");
-    else if(!ORDER_NO_RE.test(form.webOrderNumber.trim())) errs.push("Web Order Number must be exactly 9 letters/digits");
+    if(!webVal) fail(webEl);
+    else if(!ORDER_NO_RE.test(webVal)) fail(webEl);
   }
-  if(!form.lnOrder.trim()) errs.push("LN Order");
-  else if(!ORDER_NO_RE.test(form.lnOrder.trim())) errs.push("LN Order must be exactly 9 letters/digits");
-  if(!form.mobile.trim()) errs.push("Mobile Number");
-  if(!form.region) errs.push("Region");
-  if(!form.amount || isNaN(parseFloat(form.amount))) errs.push("Amount");
-  if(!form.reason) errs.push("Reason of Cancellation");
-  if(!form.source) errs.push("Source of Request");
-  if(!form.scope) errs.push("Cancellation Scope");
-  if(form.scope==="Specific Item(s)" && !form.items.trim()) errs.push("Items to Cancel");
-  if(!form.note.trim()) errs.push("Note");
-  if(!form.refundMethod) errs.push("Amount Status / Refund Method");
-  if(!form.retain) errs.push("Retain / Not Retain");
-  if(errs.length){ toast("Missing required field: "+errs[0]); return false; }
+  if(!lnVal) fail(lnEl);
+  else if(!ORDER_NO_RE.test(lnVal)) fail(lnEl);
+  if(!mobileEl.value.trim()) fail(mobileEl);
+  if(!regionEl.value) fail(regionEl);
+  if(!amountEl.value || isNaN(parseFloat(amountEl.value))) fail(amountEl);
+  if(!reasonEl.value) fail(reasonEl);
+  if(!sourceEl.value) fail(sourceEl);
+  if(!scopeEl.value) fail(scopeEl);
+  if(scopeEl.value==="Specific Item(s)" && !itemsEl.value.trim()) fail(itemsEl);
+  if(!noteEl.value.trim()) fail(noteEl);
+  if(!refundEl.value) fail(refundEl);
+  if(!retainEl.value) fail(retainEl);
+
+  // Order-number prefix must belong to the same channel (Online/Store) as the selected Order Type.
+  if(orderType && ORDER_NO_RE.test(lnVal)){
+    var m1 = PREFIX_MAP[lnVal.slice(0,2).toUpperCase()];
+    if(m1 && m1.every(function(x){ return x.type && x.type!==orderType; })) fail(lnEl);
+  }
+  if(orderType==="Online" && ORDER_NO_RE.test(webVal)){
+    var m2 = PREFIX_MAP[webVal.slice(0,2).toUpperCase()];
+    if(m2 && m2.every(function(x){ return x.type && x.type!=="Online"; })) fail(webEl);
+  }
+
+  if(firstBad){
+    toast("Please fix the field(s) highlighted in red.");
+    firstBad.focus();
+    return false;
+  }
+
   var data = {
-    webOrderNumber: orderType==="Online" ? form.webOrderNumber.trim() : "",
-    lnOrder: form.lnOrder.trim(), mobile: form.mobile.trim(), orderType: orderType, region: form.region,
-    amount: parseFloat(form.amount), reason: form.reason, note: form.note.trim(),
-    refundMethod: form.refundMethod, retain: form.retain,
-    source: form.source, scope: form.scope, items: form.scope==="Specific Item(s)" ? form.items.trim() : ""
+    webOrderNumber: orderType==="Online" ? webVal : "",
+    lnOrder: lnVal, mobile: mobileEl.value.trim(), orderType: orderType, region: regionEl.value,
+    amount: parseFloat(amountEl.value), reason: reasonEl.value, note: noteEl.value.trim(),
+    refundMethod: refundEl.value, retain: retainEl.value,
+    source: sourceEl.value, scope: scopeEl.value, items: scopeEl.value==="Specific Item(s)" ? itemsEl.value.trim() : ""
   };
   try{
     var res = await apiCall("submitRequest", { caller: callerCred(), data: data });
@@ -755,13 +787,12 @@ function wireNewRequest(){
 
   form.addEventListener("submit", async function(e){
     e.preventDefault();
-    var fd = new FormData(form);
-    var data = {};
-    fd.forEach(function(v,k){ data[k]=v; });
-    data.orderType = sel.value;
-    var ok = await submitRequest(data);
-    if(ok){ form.reset(); syncWebOrder(); }
+    var ok = await submitRequest();
+    if(ok){ form.reset(); syncWebOrder(); syncScope(); clearInvalidFields(); }
   });
+  // Clear the red highlight on a field the moment the agent starts fixing it.
+  form.addEventListener("input", function(e){ markField(e.target, false); });
+  form.addEventListener("change", function(e){ markField(e.target, false); });
 }
 
 /* ---------- REQUESTS LIST ---------- */
