@@ -82,6 +82,8 @@ input[type=text],input[type=number],input[type=password],select,textarea{
 input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
 textarea{resize:vertical;min-height:64px}
 .field{display:flex;flex-direction:column;gap:0;min-width:0}
+.field .hint{font-size:11.5px;color:var(--ink-faint);margin-top:4px;min-height:0}
+.field .hint.warn{color:var(--bad);font-weight:600}
 .field.invalid label{color:var(--bad)}
 .field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
 .field .err{font-size:11.5px;color:var(--bad);margin-top:4px;min-height:0}
@@ -428,6 +430,13 @@ async function adminResetPassword(username){
 function fieldOf(el){ return el ? el.closest(".field") : null; }
 function markField(el, bad){ var f = fieldOf(el); if(f) f.classList.toggle("invalid", !!bad); }
 function clearInvalidFields(){ $all(".field.invalid").forEach(function(f){ f.classList.remove("invalid"); }); }
+function findDuplicateRequest(lnVal, webVal){
+  lnVal = (lnVal||"").toUpperCase(); webVal = (webVal||"").toUpperCase();
+  return state.requests.filter(function(r){
+    var rl = (r.lnOrder||"").toUpperCase(), rw = (r.webOrderNumber||"").toUpperCase();
+    return (lnVal && rl===lnVal) || (webVal && rw && rw===webVal);
+  })[0];
+}
 
 async function submitRequest(){
   clearInvalidFields();
@@ -468,6 +477,16 @@ async function submitRequest(){
   if(orderType==="Online" && ORDER_NO_RE.test(webVal)){
     var m2 = PREFIX_MAP[webVal.slice(0,2).toUpperCase()];
     if(m2 && m2.every(function(x){ return x.type && x.type!=="Online"; })) fail(webEl);
+  }
+
+  // Block a second cancellation request against an order that already has one.
+  var dup = (lnVal||webVal) ? findDuplicateRequest(lnVal, webVal) : null;
+  if(dup){
+    fail(lnEl);
+    if(webVal) fail(webEl);
+    toast("Order "+dup.id+" already has a cancellation request ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+").");
+    lnEl.focus();
+    return false;
   }
 
   if(firstBad){
@@ -751,7 +770,7 @@ function renderNewRequest(){
         '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" id="webOrderNumberInput" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. WU1234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>LN Order Number *</label><input type="text" id="lnOrderInput" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. BS1234567"></div>'+
+        '<div class="field"><label>LN Order Number *</label><input type="text" id="lnOrderInput" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. BS1234567"><div class="hint" id="dupHint"></div></div>'+
         '<div class="field"><label>Mobile Number *</label><input type="tel" name="mobile" id="mobileInput" placeholder="e.g. 0501234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
@@ -812,9 +831,23 @@ function wireNewRequest(){
       hint.textContent = "Prefix matches more than one branch — confirm the region: "+matches.map(branchName).join(" / ");
     }
   }
+  function checkDuplicateOrderNo(){
+    var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
+    var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
+    var hint = $("#dupHint");
+    var dup = (lnVal||webVal) ? findDuplicateRequest(lnVal, webVal) : null;
+    if(dup){
+      hint.textContent = "⚠ Already has a cancellation request: "+dup.id+" ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+")";
+      hint.classList.add("warn");
+    } else {
+      hint.textContent = "";
+      hint.classList.remove("warn");
+    }
+  }
+
   var form = $("#newReqForm");
-  form.lnOrder.addEventListener("input", detectFromOrderNo);
-  form.webOrderNumber.addEventListener("input", detectFromOrderNo);
+  form.lnOrder.addEventListener("input", function(){ detectFromOrderNo(); checkDuplicateOrderNo(); });
+  form.webOrderNumber.addEventListener("input", function(){ detectFromOrderNo(); checkDuplicateOrderNo(); });
 
   var scopeSel = $("#scopeSel");
   function syncScope(){
@@ -842,7 +875,7 @@ function wireNewRequest(){
   form.addEventListener("submit", async function(e){
     e.preventDefault();
     var ok = await submitRequest();
-    if(ok){ form.reset(); syncWebOrder(); syncScope(); clearInvalidFields(); }
+    if(ok){ form.reset(); syncWebOrder(); syncScope(); clearInvalidFields(); checkDuplicateOrderNo(); $("#regionHint").textContent=""; }
   });
   // Clear the red highlight on a field the moment the agent starts fixing it.
   form.addEventListener("input", function(e){ markField(e.target, false); });
