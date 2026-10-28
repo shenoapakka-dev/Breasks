@@ -78,8 +78,28 @@ function migrateAddSourceScopeItems() {
 
 /* ---------- helpers ---------- */
 function normalizeUsername(u) { return String(u || "").trim().toLowerCase(); }
-function usersSheet() { return SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Users"); }
-function requestsSheet() { return SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Requests"); }
+function activeSS() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error("no_spreadsheet_bound: open this script via Extensions > Apps Script from inside the actual Google Sheet, not from script.google.com directly");
+  return ss;
+}
+// Self-healing: create the tab (with its header row) the first time it's needed,
+// instead of depending on setup() having been run successfully beforehand.
+function usersSheet() {
+  var ss = activeSS();
+  var sh = ss.getSheetByName("Users");
+  if (!sh) { sh = ss.insertSheet("Users"); sh.appendRow(["username", "password", "role", "createdAt"]); }
+  return sh;
+}
+function requestsSheet() {
+  var ss = activeSS();
+  var sh = ss.getSheetByName("Requests");
+  if (!sh) {
+    sh = ss.insertSheet("Requests");
+    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items"]);
+  }
+  return sh;
+}
 
 function findUserRow(username) {
   username = normalizeUsername(username);

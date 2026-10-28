@@ -16,7 +16,7 @@
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
-  :root{
+  :root:not([data-theme="light"]){
     --bg:#10171A; --surface:#182124; --surface-2:#1E2A2D; --border:#2B3A3D;
     --ink:#EAF1F1; --ink-muted:#A7B6B8; --ink-faint:#71848A;
     --accent:#14B8A6; --accent-ink:#06211E; --accent-soft:#19302C;
@@ -25,6 +25,15 @@
     --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
     color-scheme:dark;
   }
+}
+:root[data-theme="dark"]{
+  --bg:#10171A; --surface:#182124; --surface-2:#1E2A2D; --border:#2B3A3D;
+  --ink:#EAF1F1; --ink-muted:#A7B6B8; --ink-faint:#71848A;
+  --accent:#14B8A6; --accent-ink:#06211E; --accent-soft:#19302C;
+  --good:#4ADE80; --good-soft:#163424; --warn:#F5A524; --warn-soft:#3A2A10; --info:#60A5FA; --info-soft:#17263E; --bad:#F87171; --bad-soft:#3A1A1A;
+  --cat-1:#0D9488; --cat-2:#9061F9; --cat-3:#EA580C; --cat-4:#0284C7; --cat-5:#A16207; --cat-6:#DB2777;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px -12px rgba(0,0,0,.5);
+  color-scheme:dark;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
@@ -268,7 +277,33 @@ function refreshAll(silent){
 }
 
 /* ---------- boot ---------- */
+/* ---------- theme (light/dark) ---------- */
+function getTheme(){ try{ return localStorage.getItem("ph_theme"); }catch(e){ return null; } }
+function isDarkNow(){
+  var t = getTheme();
+  if(t==="light") return false;
+  if(t==="dark") return true;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function applyTheme(){
+  var t = getTheme();
+  if(t==="light" || t==="dark") document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+}
+function toggleTheme(){
+  setThemeChoice(isDarkNow() ? "light" : "dark");
+}
+function setThemeChoice(t){
+  try{ localStorage.setItem("ph_theme", t); }catch(e){}
+  applyTheme();
+  render();
+}
+function themeToggleBtn(){
+  return '<button class="linkbtn" data-theme-toggle title="Switch theme">'+(isDarkNow()?"☀️ Light":"🌙 Dark")+'</button>';
+}
+
 async function boot(){
+  applyTheme();
   initGlobalEvents();
   render();
   if(API_URL.indexOf("REPLACE_WITH") === 0){ state.configMissing = true; render(); return; }
@@ -446,6 +481,7 @@ function countBy(list, fn){ var m={}; list.forEach(function(r){ var k=fn(r); m[k
 function initGlobalEvents(){
   document.addEventListener("click", function(e){
     var t;
+    if(t = e.target.closest("[data-theme-toggle]")){ toggleTheme(); return; }
     if(t = e.target.closest(".switcher button")){ state.authMode = t.dataset.mode; render(); return; }
     if(t = e.target.closest(".roletoggle label")){
       $all(".roletoggle label").forEach(function(l){ l.classList.remove("checked"); });
@@ -516,6 +552,7 @@ function renderInner(){
 function renderAuth(){
   var mode = state.authMode;
   return '<div class="loginwrap"><div class="loginbox">'+
+    '<div style="text-align:center;margin-bottom:6px">'+themeToggleBtn()+'</div>'+
     '<div class="brand"><span class="mark">PH</span><span>Pan Home</span></div>'+
     '<div class="tag">Cancellation Request Desk</div>'+
     '<div class="card">'+
@@ -565,6 +602,7 @@ function renderShell(){
     '<div class="tabs">'+ tabs.map(function(t){ return '<button class="tab '+(state.route===t[0]?"active":"")+'" data-route="'+t[0]+'">'+t[1]+'</button>'; }).join("") +'</div>'+
     '<div class="who"><div class="avatar">'+esc(initials)+'</div><div><div style="font-size:13px;font-weight:700">'+esc(u.username)+'</div></div>'+
     '<span class="rolepill">'+esc(u.role)+'</span>'+
+    themeToggleBtn()+
     '<button class="linkbtn" id="logoutBtn">Log out</button></div>'+
     '</div>'+
     '<main><div class="view">'+ renderRoute() +'</div></main>';
