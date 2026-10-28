@@ -223,6 +223,29 @@ var REGIONS = [
   {code:"QAT",label:"Qatar"},
   {code:"OMN",label:"Oman"}
 ];
+/* Each region's native currency, and its approximate fixed AED equivalent (GCC
+   currencies are pegged to USD, so these are stable, not live FX rates). Amount
+   is always entered and shown in the order's own currency; dashboard totals are
+   converted to AED so they can be summed across regions. */
+var CURRENCY_BY_REGION = {UAE:"AED", KSA:"SAR", QAT:"QAR", OMN:"OMR"};
+var AED_PER_UNIT = {AED:1, SAR:0.9793, QAR:1.0091, OMR:9.5514};
+function currencyFor(region){ return CURRENCY_BY_REGION[region] || "AED"; }
+/* ETM is the internal order system; there's no documented deep-link parameter for
+   opening one exact order, so this copies the order number to the clipboard and
+   opens ETM's own search page (already logged in for the agent) to paste into. */
+var ETM_URLS = {
+  web: "https://etm.panemirates.ae/ordering/floor/order-search-web",
+  ln:  "https://etm.panemirates.ae/ordering/floor/order-search"
+};
+function openInETM(kind, value){
+  if(value){
+    try{ navigator.clipboard && navigator.clipboard.writeText(value); toast("Copied "+value+" — paste it into ETM's search."); }
+    catch(e){ toast("Opening ETM — paste "+value+" into the search."); }
+  }
+  window.open(ETM_URLS[kind]||ETM_URLS.ln, "_blank");
+}
+function toAED(amount, region){ return (Number(amount)||0) * (AED_PER_UNIT[currencyFor(region)]||1); }
+function fmtCurrency(amount, region){ return currencyFor(region)+" "+fmtMoney(amount); }
 /* Order-number prefix -> branch/region lookup (first 2 letters of the order number).
    Some prefixes are shared across countries (OS, SS) — ambiguous prefixes list every
    match instead of guessing, and the agent picks the right one. */
@@ -631,6 +654,12 @@ function initGlobalEvents(){
       if(rec) openStoreEmail(rec, rec.status, "");
       return;
     }
+    if(t = e.target.closest("[data-etm]")){
+      var srcId = t.dataset.etmSrc;
+      var val = srcId ? ($("#"+srcId) ? $("#"+srcId).value.trim() : "") : (t.dataset.etmValue||"");
+      openInETM(t.dataset.etm, val);
+      return;
+    }
     if(t = e.target.closest("[data-act]")){
       var id = t.dataset.id, act = t.dataset.act;
       var card = t.closest(".reqcard");
@@ -767,15 +796,15 @@ function renderNewRequest(){
     '<form id="newReqForm">'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Order Type *</label><select name="orderType" id="orderTypeSel"><option value="">Select…</option><option value="Store">Store</option><option value="Online">Online</option></select></div>'+
-        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" id="webOrderNumberInput" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. WU1234567"></div>'+
+        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" id="webOrderNumberInput" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. WU1234567"><button type="button" class="linkbtn" data-etm="web" data-etm-src="webOrderNumberInput" style="padding:2px 0">Open in ETM ↗</button></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>LN Order Number *</label><input type="text" id="lnOrderInput" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. BS1234567"><div class="hint" id="dupHint"></div></div>'+
+        '<div class="field"><label>LN Order Number *</label><input type="text" id="lnOrderInput" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. BS1234567"><button type="button" class="linkbtn" data-etm="ln" data-etm-src="lnOrderInput" style="padding:2px 0">Open in ETM ↗</button><div class="hint" id="dupHint"></div></div>'+
         '<div class="field"><label>Mobile Number *</label><input type="tel" name="mobile" id="mobileInput" placeholder="e.g. 0501234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Region *</label><select name="region" id="regionSel"><option value="">Select…</option>'+regionOpts+'</select><div class="hint" id="regionHint"></div></div>'+
-        '<div class="field"><label>Amount (AED/local) *</label><input type="number" id="amountInput" step="0.01" name="amount" placeholder="0.00"></div>'+
+        '<div class="field"><label>Amount (<span id="amountCurrency">select region</span>) *</label><input type="number" id="amountInput" step="0.01" name="amount" placeholder="0.00"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Reason of Cancellation *</label><select id="reasonSel" name="reason"><option value="">Select…</option>'+reasonOpts+'</select></div>'+
@@ -817,6 +846,10 @@ function wireNewRequest(){
   syncWebOrder();
 
   function branchName(entry){ return entry.branch+" — "+((REGIONS.filter(function(x){return x.code===entry.region;})[0]||{}).label||entry.region); }
+  var regionSel = $("#regionSel");
+  function syncCurrency(){ $("#amountCurrency").textContent = regionSel.value ? currencyFor(regionSel.value) : "select region"; }
+  regionSel.addEventListener("change", syncCurrency);
+  syncCurrency();
   function detectFromOrderNo(){
     var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
     var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
@@ -827,6 +860,7 @@ function wireNewRequest(){
     if(matches.length===1){
       regionEl.value = matches[0].region;
       hint.textContent = "Detected: "+branchName(matches[0]);
+      syncCurrency();
     } else {
       hint.textContent = "Prefix matches more than one branch — confirm the region: "+matches.map(branchName).join(" / ");
     }
@@ -869,13 +903,13 @@ function wireNewRequest(){
     var qp = new URLSearchParams(location.search);
     var mobileEl = $("#mobileInput"), regionEl = $("#regionSel");
     if(qp.get("mobile") && mobileEl) mobileEl.value = qp.get("mobile");
-    if(qp.get("region") && regionEl) regionEl.value = qp.get("region").toUpperCase();
+    if(qp.get("region") && regionEl){ regionEl.value = qp.get("region").toUpperCase(); syncCurrency(); }
   }catch(e){}
 
   form.addEventListener("submit", async function(e){
     e.preventDefault();
     var ok = await submitRequest();
-    if(ok){ form.reset(); syncWebOrder(); syncScope(); clearInvalidFields(); checkDuplicateOrderNo(); $("#regionHint").textContent=""; }
+    if(ok){ form.reset(); syncWebOrder(); syncScope(); syncCurrency(); clearInvalidFields(); checkDuplicateOrderNo(); $("#regionHint").textContent=""; }
   });
   // Clear the red highlight on a field the moment the agent starts fixing it.
   form.addEventListener("input", function(e){ markField(e.target, false); });
@@ -934,7 +968,7 @@ function renderReqCard(r){
     '<div class="reqhead" data-toggle="'+r.id+'">'+
       '<span class="id">'+r.id+'</span>'+typeBadge(r.orderType)+statusBadge(r.status)+
       '<span class="meta">'+esc(r.agent)+' · '+fmtDate(r.createdAt)+'</span>'+
-      '<span class="amt num">'+fmtMoney(r.amount)+'</span>'+
+      '<span class="amt num">'+fmtCurrency(r.amount, r.region)+'</span>'+
       '<span class="chev">›</span>'+
     '</div>'+
     '<div class="reqsummary" data-toggle="'+r.id+'">'+
@@ -949,8 +983,8 @@ function renderReqCard(r){
     '</div>'+
     '<div class="reqbody">'+
       '<div class="kv">'+
-        '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber):"N/A — Store order")+'</div></div>'+
-        '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+'</div></div>'+
+        '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber)+' <button type="button" class="linkbtn" data-etm="web" data-etm-value="'+esc(r.webOrderNumber)+'" style="padding:0">↗ ETM</button>':"N/A — Store order")+'</div></div>'+
+        '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+' <button type="button" class="linkbtn" data-etm="ln" data-etm-value="'+esc(r.lnOrder)+'" style="padding:0">↗ ETM</button></div></div>'+
         '<div><div class="k">Mobile Number</div><div class="vv">'+esc(r.mobile)+'</div></div>'+
         '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
         '<div><div class="k">Reason</div><div class="vv">'+esc(r.reason)+'</div></div>'+
@@ -976,11 +1010,16 @@ function wireRequests(){
 }
 function exportCsv(){
   var list = filteredRequests();
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","source","scope","items","note","refundMethod","retain","status"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status"];
   var head = cols.join(",");
   var rows = list.map(function(r){
     return cols.map(function(c){
-      var v = c==="createdAt" ? fmtDate(r.createdAt) : (c==="status" ? STATUS[r.status].label : (r[c]==null?"":r[c]));
+      var v;
+      if(c==="createdAt") v = fmtDate(r.createdAt);
+      else if(c==="status") v = (STATUS[r.status]?STATUS[r.status].label:r.status);
+      else if(c==="currency") v = currencyFor(r.region);
+      else if(c==="amountAED") v = toAED(r.amount, r.region).toFixed(2);
+      else v = (r[c]==null?"":r[c]);
       v = String(v).replace(/"/g,'""');
       return '"'+v+'"';
     }).join(",");
@@ -1002,8 +1041,8 @@ function renderDashboard(){
 
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
   var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1; });
-  var cancelledAmt = closedList.reduce(function(s,r){ return s+(Number(r.amount)||0); },0);
-  var pendingAmt = openList.reduce(function(s,r){ return s+(Number(r.amount)||0); },0);
+  var cancelledAmt = closedList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
+  var pendingAmt = openList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var retained = list.filter(function(r){ return r.retain==="Retained"; }).length;
   var retRate = total? Math.round(retained/total*100) : 0;
   var closedRate = total? Math.round(closedList.length/total*100) : 0;
@@ -1011,7 +1050,7 @@ function renderDashboard(){
   var byReason = countBy(list, function(r){ return r.reason; });
   var byRegion = countBy(list, function(r){ return (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region; });
   var byRegionAmt = {};
-  list.forEach(function(r){ var k=(REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label||r.region; byRegionAmt[k]=(byRegionAmt[k]||0)+(Number(r.amount)||0); });
+  list.forEach(function(r){ var k=(REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label||r.region; byRegionAmt[k]=(byRegionAmt[k]||0)+toAED(r.amount, r.region); });
   var byAgent  = countBy(list, function(r){ return r.agent; });
   var byType = countBy(list, function(r){ return r.orderType; });
   var bySource = countBy(list, function(r){ return r.source || "Unspecified"; });
@@ -1048,8 +1087,8 @@ function renderDashboard(){
   '</div>'+
   '<div class="kpis">'+
     kpi("Requests", total, scopeLabel(scope))+
-    kpi("Cancelled Value", fmtMoney(cancelledAmt), closedList.length+" closed request(s)")+
-    kpi("Pending Value", fmtMoney(pendingAmt), openList.length+" still open")+
+    kpi("Cancelled Value", "AED "+fmtMoney(cancelledAmt), closedList.length+" closed request(s), converted to AED")+
+    kpi("Pending Value", "AED "+fmtMoney(pendingAmt), openList.length+" still open, converted to AED")+
     kpi("Retention Rate", retRate+"%", retained+" of "+total+" retained")+
     kpi("Closed Rate", closedRate+"%", closedList.length+" of "+total+" fully cancelled")+
   '</div>'+
@@ -1068,7 +1107,7 @@ function renderDashboard(){
   '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+'</p>'+ hbarList(byReason,8) +'</div>'+
   '<div class="chartgrid">'+
     chartCard("By Region — count", hbarList(byRegion,6))+
-    chartCard("By Region — value", hbarList(byRegionAmt,6,fmtMoney))+
+    chartCard("By Region — value (AED)", hbarList(byRegionAmt,6,function(v){return "AED "+fmtMoney(v);}))+
   '</div>'+
   '<div class="card"><h2 style="font-size:14.5px">By Agent</h2>'+ hbarList(byAgent,8) +'</div>';
 }
