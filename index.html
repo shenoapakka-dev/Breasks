@@ -481,27 +481,51 @@ async function updateStatus(id, status, remark){
 
 /* Builds a pre-filled email (subject + body) for the store and opens it in the
    user's default mail app (Outlook on most corporate Windows machines). */
+/* Who the store-notification email goes to: the Online team for a "W" (web) order
+   number prefix, otherwise the specific branch the prefix maps to. */
+function recipientFor(r){
+  var num = (r.lnOrder || r.webOrderNumber || "").toUpperCase();
+  var prefix = num.slice(0,2);
+  if(prefix.charAt(0)==="W") return "Online";
+  var m = PREFIX_MAP[prefix];
+  if(m && m.length) return m[0].branch;
+  return "Store";
+}
 function buildMailto(r, status, remark){
-  var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
-  var subject = "Cancellation Request "+r.id+" - "+r.orderType+" - "+STATUS[status].label;
-  var lines = [
-    "Cancellation Request: "+r.id,
-    "Status: "+STATUS[status].label,
-    "Order Type: "+r.orderType,
-    "Web Order Number: "+(r.webOrderNumber||"N/A"),
-    "LN Order Number: "+r.lnOrder,
-    "Mobile Number: "+r.mobile,
-    "Region: "+regionLabel,
-    "Amount: "+fmtMoney(r.amount),
-    "Reason: "+r.reason,
-    "Source of Request: "+(r.source||"—"),
-    "Cancellation Scope: "+(r.scope||"—")+(r.items?(" ("+r.items+")"):""),
-    "Refund Via: "+r.refundMethod,
-    "Retention: "+r.retain,
-    "Note: "+r.note,
-    "Agent: "+r.agent,
-    "Processed by: "+state.currentUser.username+(remark?("\nRemark: "+remark):"")
-  ];
+  var recipient = recipientFor(r);
+  var isWhole = r.scope !== "Specific Item(s)";
+  var requestKind = isWhole ? "Order cancellation request" : "Item cancellation request";
+  var subject = requestKind+" "+r.id+" — "+recipient;
+
+  var lines = [];
+  lines.push("Dear "+recipient+",");
+  lines.push("");
+  lines.push("Please find below "+(isWhole
+    ? "an order cancellation request."
+    : "a cancellation request for the following item(s): "+(r.items||"—")+"."));
+  lines.push("");
+  if(r.retain !== "Retained"){
+    if(r.refundMethod === "Same Payment Method"){
+      lines.push("Kindly process the refund to the same payment method used for this order.");
+    } else if(r.refundMethod === "Credit Note"){
+      lines.push("Kindly process this as a Credit Note.");
+    }
+    lines.push("");
+  }
+  lines.push("Order details:");
+  lines.push("Web Order: "+(r.webOrderNumber||"N/A"));
+  lines.push("LN Order: "+r.lnOrder);
+  lines.push("Mobile: "+r.mobile);
+  lines.push("Status: "+(status==="pending" ? "Pending for Review" : "Email sent to "+recipient));
+  lines.push("Date: "+fmtDate(r.createdAt));
+  lines.push("Amount: "+fmtMoney(r.amount));
+  lines.push("Refund Via: "+r.refundMethod);
+  lines.push("Agent Name: "+r.agent);
+  if(remark){ lines.push(""); lines.push("Remark: "+remark); }
+  lines.push("");
+  lines.push("Regards,");
+  lines.push(state.currentUser.username);
+
   return "mailto:?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(lines.join("\n"));
 }
 function openStoreEmail(r, status, remark){
