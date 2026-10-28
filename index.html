@@ -841,10 +841,29 @@ function renderNewRequest(){
       '<button type="button" class="btn primary" data-etm="web" style="justify-content:center">Open ETM — Web Order Search ↗</button>'+
       '<button type="button" class="btn primary" data-etm="ln" style="justify-content:center">Open ETM — LN Order Search ↗</button>'+
     '</div>'+
+    '<div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">'+
+      '<p class="sub" style="margin:0 0 8px"><b>Bulk lookup (optional):</b> a console script that runs on ETM\'s own page (not ours) to fetch several orders at once and export them as CSV / copy for Excel.</p>'+
+      '<ol style="margin:0 0 10px;padding-left:18px;font-size:12.5px;color:var(--ink-muted)">'+
+        '<li>Open ETM in a tab, then press F12 for DevTools and open the Console tab.</li>'+
+        '<li>Click "Copy bulk-lookup script" below, paste it into the Console, press Enter.</li>'+
+        '<li>A small panel appears on the ETM page — paste order numbers there and run it.</li>'+
+      '</ol>'+
+      '<button type="button" class="btn sm" id="copyEtmScriptBtn">📋 Copy bulk-lookup script</button>'+
+    '</div>'+
   '</div>'+
   '</div>';
 }
 function wireNewRequest(){
+  var copyEtmBtn = $("#copyEtmScriptBtn");
+  if(copyEtmBtn) copyEtmBtn.addEventListener("click", function(){
+    fetch("etm-bulk-fetch.js").then(function(r){ return r.text(); }).then(function(txt){
+      return navigator.clipboard.writeText(txt);
+    }).then(function(){
+      toast("Script copied — paste it into ETM's browser console.");
+    }).catch(function(){
+      toast("Couldn't copy automatically — open etm-bulk-fetch.js in the repo and copy it manually.");
+    });
+  });
   var sel = $("#orderTypeSel");
   function syncWebOrder(){
     var isOnline = sel.value==="Online";
