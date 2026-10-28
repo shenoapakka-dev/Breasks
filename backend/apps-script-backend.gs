@@ -172,10 +172,10 @@ function submitRequest(agentUsername, d) {
   var sh = requestsSheet();
   var id = "PH-" + Utilities.formatDate(new Date(), "GMT", "yyMMdd") + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
   var now = new Date().toISOString();
-  var history = [{ status: "pending", by: agentUsername, at: now, remark: "Request submitted" }];
+  var history = [{ status: "new", by: agentUsername, at: now, remark: "Request submitted" }];
   sh.appendRow([
     id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.mobile || "", d.region,
-    Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "pending", now, JSON.stringify(history),
+    Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "new", now, JSON.stringify(history),
     d.source || "", d.scope || "", d.items || ""
   ]);
   return { id: id };

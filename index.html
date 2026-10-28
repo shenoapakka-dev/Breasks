@@ -105,6 +105,7 @@ textarea{resize:vertical;min-height:64px}
 .badge.pending{background:var(--warn-soft);color:var(--warn)}
 .badge.approved{background:var(--good-soft);color:var(--good)}
 .badge.sent{background:var(--info-soft);color:var(--info)}
+.badge.closed{background:var(--good-soft);color:var(--good)}
 .badge.store{background:var(--surface-2);color:var(--ink-muted)}
 .badge.online{background:var(--accent-soft);color:var(--accent)}
 .badge.retained{background:var(--good-soft);color:var(--good)}
@@ -144,6 +145,8 @@ textarea{resize:vertical;min-height:64px}
 .reqhead .meta{color:var(--ink-faint);font-size:12px}
 .reqhead .amt{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums}
 .reqhead .chev{color:var(--ink-faint);transition:transform .15s}
+.reqsummary{display:flex;flex-wrap:wrap;gap:4px 14px;padding:0 14px 12px;font-size:12px;color:var(--ink-muted);cursor:pointer;align-items:center}
+.reqsummary span{white-space:nowrap}
 .reqcard.open .chev{transform:rotate(90deg)}
 .reqbody{border-top:1px solid var(--border);padding:14px;display:none}
 .reqcard.open .reqbody{display:block}
@@ -236,13 +239,29 @@ var PREFIX_MAP = {
 };
 var SOURCES = ["Call Center","Care Email","Store"];
 var SCOPES = ["Whole Order","Specific Item(s)"];
-var REFUND_METHODS = ["Same Payment Method","Credit Note"];
+var REFUND_METHODS = ["Same Payment Method","Credit Note","Cash on Delivery"];
 var RETAIN_OPTIONS = ["Retained","Not Retained"];
+/* Workflow: new -> approved/sent (store notified, kept from the original flow as an
+   intermediate stage) -> one of the three closed "Cancelled ..." outcomes, picked
+   automatically from the request's own Refund Via once Operations confirms the
+   store processed it. "pending" is kept as an alias of "new" for requests raised
+   before this status was renamed. */
 var STATUS = {
-  pending:  {label:"Pending Review", cls:"pending"},
+  new:      {label:"New", cls:"pending"},
+  pending:  {label:"New", cls:"pending"},
   approved: {label:"Approved & Sent to the Store", cls:"approved"},
-  sent:     {label:"Sent to the Store", cls:"sent"}
+  sent:     {label:"Sent to the Store", cls:"sent"},
+  cancelled_refund: {label:"Cancelled with Refund Same Payment Method", cls:"closed"},
+  cancelled_credit: {label:"Cancelled With Credit Note", cls:"closed"},
+  cancelled_cdf:    {label:"Cancelled CDF", cls:"closed"}
 };
+var OPEN_STATUSES = ["new","pending","approved","sent"];
+var CLOSED_STATUSES = ["cancelled_refund","cancelled_credit","cancelled_cdf"];
+function finalStatusFor(refundMethod){
+  if(refundMethod==="Credit Note") return "cancelled_credit";
+  if(refundMethod==="Cash on Delivery") return "cancelled_cdf";
+  return "cancelled_refund";
+}
 
 /* ---------- tiny helpers ---------- */
 function esc(s){ s = (s==null?"":String(s)); var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
@@ -277,6 +296,8 @@ var state = {
   route:"new",
   authMode:"login",
   dashScope:"month",
+  dashRange:{from:"",to:""},
+  dashFilters:{region:"",status:"",orderType:"",source:""},
   openCard:null,
   filters:{ q:"", status:"", orderType:"", region:"" }
 };
@@ -516,7 +537,7 @@ function buildMailto(r, status, remark){
   lines.push("Web Order: "+(r.webOrderNumber||"N/A"));
   lines.push("LN Order: "+r.lnOrder);
   lines.push("Mobile: "+r.mobile);
-  lines.push("Status: "+(status==="pending" ? "Pending for Review" : "Email sent to "+recipient));
+  lines.push("Status: "+(CLOSED_STATUSES.indexOf(status)>-1 ? STATUS[status].label : (status==="pending"||status==="new") ? "Pending for Review" : "Email sent to "+recipient));
   lines.push("Date: "+fmtDate(r.createdAt));
   lines.push("Amount: "+fmtMoney(r.amount));
   lines.push("Refund Via: "+r.refundMethod);
@@ -540,16 +561,25 @@ function openStoreEmail(r, status, remark){
 function canAct(){ return state.currentUser && (state.currentUser.role==="operations" || state.currentUser.role==="admin"); }
 function isAdmin(){ return state.currentUser && state.currentUser.role==="admin"; }
 function scopedRequests(scope){
-  var now=Date.now(), from;
+  var now=Date.now(), from=0, to=now+1;
   if(scope==="today") from = startOfDay(now);
   else if(scope==="month") from = startOfMonth(now);
-  else from = 0;
-  return state.requests.filter(function(r){ return r.createdAt >= from; });
+  else if(scope==="custom"){
+    from = state.dashRange.from ? new Date(state.dashRange.from+"T00:00:00").getTime() : 0;
+    to = state.dashRange.to ? new Date(state.dashRange.to+"T23:59:59").getTime() : now+1;
+  }
+  var list = state.requests.filter(function(r){ return r.createdAt >= from && r.createdAt <= to; });
+  var f = state.dashFilters;
+  if(f.region) list = list.filter(function(r){ return r.region===f.region; });
+  if(f.status) list = list.filter(function(r){ return (r.status==="pending"?"new":r.status)===f.status; });
+  if(f.orderType) list = list.filter(function(r){ return r.orderType===f.orderType; });
+  if(f.source) list = list.filter(function(r){ return r.source===f.source; });
+  return list;
 }
 function filteredRequests(){
   var f = state.filters;
   return state.requests.slice().sort(function(a,b){ return b.createdAt - a.createdAt; }).filter(function(r){
-    if(f.status && r.status!==f.status) return false;
+    if(f.status && (r.status==="pending"?"new":r.status)!==f.status) return false;
     if(f.orderType && r.orderType!==f.orderType) return false;
     if(f.region && r.region!==f.region) return false;
     if(f.q){
@@ -834,7 +864,7 @@ function renderRequests(){
     '<div class="filterbar" style="margin-bottom:16px">'+
       '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, mobile number, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
       '<div class="field"><label>Status</label><select id="fStatus"><option value="">All</option>'+
-        Object.keys(STATUS).map(function(k){ return '<option value="'+k+'" '+(state.filters.status===k?"selected":"")+'>'+STATUS[k].label+'</option>'; }).join("")+'</select></div>'+
+        Object.keys(STATUS).filter(function(k){return k!=="pending";}).map(function(k){ return '<option value="'+k+'" '+(state.filters.status===k?"selected":"")+'>'+STATUS[k].label+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Order Type</label><select id="fType"><option value="">All</option><option '+(state.filters.orderType==="Store"?"selected":"")+'>Store</option><option '+(state.filters.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
       '<div class="field"><label>Region</label><select id="fRegion"><option value="">All</option>'+
         REGIONS.map(function(r){ return '<option value="'+r.code+'" '+(state.filters.region===r.code?"selected":"")+'>'+r.code+'</option>'; }).join("")+'</select></div>'+
@@ -849,12 +879,19 @@ function renderReqCard(r){
   var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
   var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>' : '';
   var actions = "";
-  if(can && r.status==="pending"){
+  if(can && (r.status==="pending" || r.status==="new")){
     actions = '<div class="opsbox"><label>Operations remark (optional, visible to the agent)</label>'+
       '<textarea class="opsRemark" placeholder="e.g. Confirmed with store, stock held."></textarea>'+
       '<div class="btnrow" style="margin-top:10px">'+
         '<button class="btn good sm" data-act="approved" data-id="'+r.id+'">Approve &amp; Send to Store</button>'+
         '<button class="btn info sm" data-act="sent" data-id="'+r.id+'">Send to the Store</button>'+
+      '</div></div>';
+  } else if(can && (r.status==="approved" || r.status==="sent")){
+    var finalKey = finalStatusFor(r.refundMethod);
+    actions = '<div class="opsbox"><label>Operations remark (optional, visible to the agent)</label>'+
+      '<textarea class="opsRemark" placeholder="e.g. Store confirmed, refund processed."></textarea>'+
+      '<div class="btnrow" style="margin-top:10px">'+
+        '<button class="btn good sm" data-act="'+finalKey+'" data-id="'+r.id+'">Confirm Cancelled — '+STATUS[finalKey].label+'</button>'+
       '</div></div>';
   }
   var hist = (r.history||[]).slice().reverse().map(function(h){
@@ -866,6 +903,16 @@ function renderReqCard(r){
       '<span class="meta">'+esc(r.agent)+' · '+fmtDate(r.createdAt)+'</span>'+
       '<span class="amt num">'+fmtMoney(r.amount)+'</span>'+
       '<span class="chev">›</span>'+
+    '</div>'+
+    '<div class="reqsummary" data-toggle="'+r.id+'">'+
+      '<span>Web: '+(r.webOrderNumber?esc(r.webOrderNumber):"N/A")+'</span>'+
+      '<span>LN: '+esc(r.lnOrder)+'</span>'+
+      '<span>Mobile: '+esc(r.mobile)+'</span>'+
+      '<span>'+esc(regionLabel)+'</span>'+
+      '<span>'+esc(r.reason)+'</span>'+
+      '<span>'+esc(r.source||"—")+'</span>'+
+      '<span>'+esc(r.refundMethod)+'</span>'+
+      retainBadge(r.retain)+
     '</div>'+
     '<div class="reqbody">'+
       '<div class="kv">'+
@@ -919,14 +966,19 @@ function renderDashboard(){
   var scope = state.dashScope;
   var list = scopedRequests(scope);
   var total = list.length;
-  var totalAmt = list.reduce(function(s,r){ return s+(Number(r.amount)||0); },0);
+
+  var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
+  var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1; });
+  var cancelledAmt = closedList.reduce(function(s,r){ return s+(Number(r.amount)||0); },0);
+  var pendingAmt = openList.reduce(function(s,r){ return s+(Number(r.amount)||0); },0);
   var retained = list.filter(function(r){ return r.retain==="Retained"; }).length;
-  var processed = list.filter(function(r){ return r.status!=="pending"; }).length;
   var retRate = total? Math.round(retained/total*100) : 0;
-  var procRate = total? Math.round(processed/total*100) : 0;
+  var closedRate = total? Math.round(closedList.length/total*100) : 0;
 
   var byReason = countBy(list, function(r){ return r.reason; });
   var byRegion = countBy(list, function(r){ return (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region; });
+  var byRegionAmt = {};
+  list.forEach(function(r){ var k=(REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label||r.region; byRegionAmt[k]=(byRegionAmt[k]||0)+(Number(r.amount)||0); });
   var byAgent  = countBy(list, function(r){ return r.agent; });
   var byType = countBy(list, function(r){ return r.orderType; });
   var bySource = countBy(list, function(r){ return r.source || "Unspecified"; });
@@ -935,23 +987,40 @@ function renderDashboard(){
   var byStatus = countBy(list, function(r){ return STATUS[r.status]?STATUS[r.status].label:r.status; });
 
   var trendBuckets = buildTrend(list, scope);
+  var f = state.dashFilters;
 
   return ''+
   '<div class="card" style="padding-bottom:10px">'+
-    '<div class="btnrow" style="justify-content:space-between">'+
+    '<div class="btnrow" style="justify-content:space-between;margin-bottom:12px">'+
       '<div><h2 style="margin:0">Dashboard</h2><p class="sub" style="margin:2px 0 0">Analytics across every submitted request (refreshes automatically).</p></div>'+
       '<div class="scopebar">'+
-        ["today","month","all"].map(function(s){ return '<button data-scope="'+s+'" class="'+(scope===s?"active":"")+'">'+({today:"Today",month:"This Month",all:"All Time"}[s])+'</button>'; }).join("")+
+        ["today","month","all","custom"].map(function(s){ return '<button data-scope="'+s+'" class="'+(scope===s?"active":"")+'">'+({today:"Today",month:"This Month",all:"All Time",custom:"Custom"}[s])+'</button>'; }).join("")+
       '</div>'+
+    '</div>'+
+    (scope==="custom" ? (
+      '<div class="btnrow" style="margin-bottom:4px">'+
+        '<div class="field" style="width:160px"><label>From</label><input type="date" id="dashFrom" value="'+esc(state.dashRange.from)+'"></div>'+
+        '<div class="field" style="width:160px"><label>To</label><input type="date" id="dashTo" value="'+esc(state.dashRange.to)+'"></div>'+
+      '</div>'
+    ) : '')+
+    '<div class="btnrow">'+
+      '<div class="field" style="width:150px"><label>Region</label><select id="dfRegion"><option value="">All</option>'+
+        REGIONS.map(function(r){ return '<option value="'+r.code+'" '+(f.region===r.code?"selected":"")+'>'+r.code+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:190px"><label>Status</label><select id="dfStatus"><option value="">All</option>'+
+        Object.keys(STATUS).filter(function(k){return k!=="pending";}).map(function(k){ return '<option value="'+k+'" '+(f.status===k?"selected":"")+'>'+STATUS[k].label+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:140px"><label>Order Type</label><select id="dfOrderType"><option value="">All</option><option '+(f.orderType==="Store"?"selected":"")+'>Store</option><option '+(f.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
+      '<div class="field" style="width:150px"><label>Source</label><select id="dfSource"><option value="">All</option>'+
+        SOURCES.map(function(s){ return '<option value="'+esc(s)+'" '+(f.source===s?"selected":"")+'>'+esc(s)+'</option>'; }).join("")+'</select></div>'+
     '</div>'+
   '</div>'+
   '<div class="kpis">'+
     kpi("Requests", total, scopeLabel(scope))+
-    kpi("Cancelled Value", fmtMoney(totalAmt), "sum of amounts")+
+    kpi("Cancelled Value", fmtMoney(cancelledAmt), closedList.length+" closed request(s)")+
+    kpi("Pending Value", fmtMoney(pendingAmt), openList.length+" still open")+
     kpi("Retention Rate", retRate+"%", retained+" of "+total+" retained")+
-    kpi("Processed", procRate+"%", processed+" moved past pending")+
+    kpi("Closed Rate", closedRate+"%", closedList.length+" of "+total+" fully cancelled")+
   '</div>'+
-  '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":"Monthly, last 12 months"))+'</p>'+
+  '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+'</p>'+
     renderTrendSVG(trendBuckets)+
   '</div>'+
   '<div class="chartgrid">'+
@@ -959,22 +1028,23 @@ function renderDashboard(){
     chartCard("Source of Request", donutSVG(toPairs(bySource),{"Call Center":"cat-1","Care Email":"cat-5","Store":"cat-2","Unspecified":"cat-6"}))+
   '</div>'+
   '<div class="chartgrid">'+
-    chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4"}))+
+    chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4","Cash on Delivery":"cat-5"}))+
     chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
   '</div>'+
-  chartCard("Request Status", donutSVG(toPairs(byStatus),{"Pending Review":"warn","Approved & Sent to the Store":"good","Sent to the Store":"info"}))+
+  chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Approved & Sent to the Store":"good","Sent to the Store":"info","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"}))+
   '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+'</p>'+ hbarList(byReason,8) +'</div>'+
   '<div class="chartgrid">'+
-    chartCard("By Region", hbarList(byRegion,6))+
-    chartCard("By Agent", hbarList(byAgent,6))+
-  '</div>';
+    chartCard("By Region — count", hbarList(byRegion,6))+
+    chartCard("By Region — value", hbarList(byRegionAmt,6,fmtMoney))+
+  '</div>'+
+  '<div class="card"><h2 style="font-size:14.5px">By Agent</h2>'+ hbarList(byAgent,8) +'</div>';
 }
-function scopeLabel(s){ return s==="today"?"today":(s==="month"?"this month":"all time"); }
+function scopeLabel(s){ return s==="today"?"today":(s==="month"?"this month":(s==="custom"?"the selected range":"all time")); }
 function kpi(lbl,val,sub){ return '<div class="kpi"><div class="lbl">'+lbl+'</div><div class="val num">'+val+'</div><div class="sub">'+sub+'</div></div>'; }
 function chartCard(title,inner){ return '<div class="card"><h2 style="font-size:14.5px">'+title+'</h2>'+inner+'</div>'; }
 function toPairs(m){ return Object.keys(m).map(function(k){ return {label:k, value:m[k]}; }).sort(function(a,b){return b.value-a.value;}); }
 
-function hbarList(m, limit){
+function hbarList(m, limit, fmt){
   var pairs = toPairs(m).slice(0, limit||10);
   if(!pairs.length) return '<p class="sub">No data yet.</p>';
   var max = Math.max.apply(null, pairs.map(function(p){return p.value;}));
@@ -982,7 +1052,7 @@ function hbarList(m, limit){
     var pct = max? Math.max(4, Math.round(p.value/max*100)) : 0;
     return '<div class="hbarrow"><div class="lbl" title="'+esc(p.label)+'">'+esc(p.label)+'</div>'+
       '<div class="hbartrack"><div class="hbarfill" style="width:'+pct+'%"></div></div>'+
-      '<div class="v num">'+p.value+'</div></div>';
+      '<div class="v num">'+(fmt?fmt(p.value):p.value)+'</div></div>';
   }).join("") +'</div>';
 }
 
@@ -1065,6 +1135,14 @@ function wireDashboard(){
     });
     svg.addEventListener("mouseleave", function(){ $("#tooltip").style.opacity=0; });
   }
+  var from = $("#dashFrom"), to = $("#dashTo");
+  if(from) from.addEventListener("change", function(){ state.dashRange.from=this.value; render(); });
+  if(to) to.addEventListener("change", function(){ state.dashRange.to=this.value; render(); });
+  var dfRegion=$("#dfRegion"), dfStatus=$("#dfStatus"), dfOrderType=$("#dfOrderType"), dfSource=$("#dfSource");
+  if(dfRegion) dfRegion.addEventListener("change", function(){ state.dashFilters.region=this.value; render(); });
+  if(dfStatus) dfStatus.addEventListener("change", function(){ state.dashFilters.status=this.value; render(); });
+  if(dfOrderType) dfOrderType.addEventListener("change", function(){ state.dashFilters.orderType=this.value; render(); });
+  if(dfSource) dfSource.addEventListener("change", function(){ state.dashFilters.source=this.value; render(); });
 }
 
 /* ---------- ACCOUNT ---------- */
