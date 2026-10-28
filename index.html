@@ -215,6 +215,22 @@ var REGIONS = [
   {code:"QAT",label:"Qatar"},
   {code:"OMN",label:"Oman"}
 ];
+/* Order-number prefix -> branch/region lookup (first 2 letters of the order number).
+   Some prefixes are shared across countries (OS, SS) — ambiguous prefixes list every
+   match instead of guessing, and the agent picks the right one. */
+var PREFIX_MAP = {
+  WU:[{region:"UAE",branch:"UAE Online"}], BS:[{region:"UAE",branch:"Barsha Store"}],
+  TS:[{region:"UAE",branch:"Zahia Store"}], YS:[{region:"UAE",branch:"Marina Store"}],
+  CS:[{region:"UAE",branch:"DFC Mall Store"}], IS:[{region:"UAE",branch:"Deerfields Mall Store"}],
+  VS:[{region:"UAE",branch:"Festival Plaza Store"}], JS:[{region:"UAE",branch:"FJR Store"}],
+  NS:[{region:"UAE",branch:"Al Ain Store"}],
+  WK:[{region:"KSA",branch:"KSA Online"}], RS:[{region:"KSA",branch:"Riyadh Store"}],
+  WO:[{region:"OMN",branch:"Oman Online"}], GS:[{region:"OMN",branch:"Ghoubrah Store"}],
+  WQ:[{region:"QAT",branch:"Qatar Online"}], LS:[{region:"QAT",branch:"Salwa Store"}],
+  ES:[{region:"QAT",branch:"QDFC Mall Store"}],
+  SS:[{region:"UAE",branch:"Sharjah Store"},{region:"OMN",branch:"Salalah Store"}],
+  OS:[{region:"KSA",branch:"Olaya Store"},{region:"OMN",branch:"Alhail Store"}]
+};
 var SOURCES = ["Call Center","Care Email","Store"];
 var SCOPES = ["Whole Order","Specific Item(s)"];
 var REFUND_METHODS = ["Same Payment Method","Credit Note"];
@@ -638,14 +654,14 @@ function renderNewRequest(){
     '<form id="newReqForm">'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Order Type *</label><select name="orderType" id="orderTypeSel"><option value="">Select…</option><option value="Store">Store</option><option value="Online">Online</option></select></div>'+
-        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. A1B234567"></div>'+
+        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. WU1234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>LN Order Number *</label><input type="text" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. 559021ABC"></div>'+
+        '<div class="field"><label>LN Order Number *</label><input type="text" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. BS1234567"></div>'+
         '<div class="field"><label>Mobile Number *</label><input type="tel" name="mobile" id="mobileInput" placeholder="e.g. 0501234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Region *</label><select name="region" id="regionSel"><option value="">Select…</option>'+regionOpts+'</select></div>'+
+        '<div class="field"><label>Region *</label><select name="region" id="regionSel"><option value="">Select…</option>'+regionOpts+'</select><div class="hint" id="regionHint"></div></div>'+
         '<div class="field"><label>Amount (AED/local) *</label><input type="number" step="0.01" name="amount" placeholder="0.00"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
@@ -687,6 +703,25 @@ function wireNewRequest(){
   sel.addEventListener("change", syncWebOrder);
   syncWebOrder();
 
+  function branchName(entry){ return entry.branch+" — "+((REGIONS.filter(function(x){return x.code===entry.region;})[0]||{}).label||entry.region); }
+  function detectFromOrderNo(){
+    var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
+    var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
+    var prefix = (lnVal.length>=2 ? lnVal.slice(0,2) : (webVal.length>=2 ? webVal.slice(0,2) : ""));
+    var hint = $("#regionHint"), regionEl = $("#regionSel");
+    var matches = PREFIX_MAP[prefix];
+    if(!matches){ hint.textContent=""; return; }
+    if(matches.length===1){
+      regionEl.value = matches[0].region;
+      hint.textContent = "Detected: "+branchName(matches[0]);
+    } else {
+      hint.textContent = "Prefix matches more than one branch — confirm the region: "+matches.map(branchName).join(" / ");
+    }
+  }
+  var form = $("#newReqForm");
+  form.lnOrder.addEventListener("input", detectFromOrderNo);
+  form.webOrderNumber.addEventListener("input", detectFromOrderNo);
+
   var scopeSel = $("#scopeSel");
   function syncScope(){
     var isItem = scopeSel.value==="Specific Item(s)";
@@ -710,7 +745,6 @@ function wireNewRequest(){
     if(qp.get("region") && regionEl) regionEl.value = qp.get("region").toUpperCase();
   }catch(e){}
 
-  var form = $("#newReqForm");
   form.addEventListener("submit", async function(e){
     e.preventDefault();
     var fd = new FormData(form);
