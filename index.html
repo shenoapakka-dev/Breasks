@@ -662,36 +662,36 @@ function renderNewRequest(){
     '<form id="newReqForm">'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Order Type *</label><select name="orderType" id="orderTypeSel"><option value="">Select…</option><option value="Store">Store</option><option value="Online">Online</option></select></div>'+
-        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. WU1234567"></div>'+
+        '<div class="field" id="webOrderField"><label>Web Order Number <span id="webOrderReq">*</span></label><input type="text" id="webOrderNumberInput" name="webOrderNumber" maxlength="9" placeholder="9 letters/digits, e.g. WU1234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>LN Order Number *</label><input type="text" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. BS1234567"></div>'+
+        '<div class="field"><label>LN Order Number *</label><input type="text" id="lnOrderInput" name="lnOrder" maxlength="9" placeholder="9 letters/digits, e.g. BS1234567"></div>'+
         '<div class="field"><label>Mobile Number *</label><input type="tel" name="mobile" id="mobileInput" placeholder="e.g. 0501234567"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Region *</label><select name="region" id="regionSel"><option value="">Select…</option>'+regionOpts+'</select><div class="hint" id="regionHint"></div></div>'+
-        '<div class="field"><label>Amount (AED/local) *</label><input type="number" step="0.01" name="amount" placeholder="0.00"></div>'+
+        '<div class="field"><label>Amount (AED/local) *</label><input type="number" id="amountInput" step="0.01" name="amount" placeholder="0.00"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Reason of Cancellation *</label><select name="reason"><option value="">Select…</option>'+reasonOpts+'</select></div>'+
+        '<div class="field"><label>Reason of Cancellation *</label><select id="reasonSel" name="reason"><option value="">Select…</option>'+reasonOpts+'</select></div>'+
         '<div class="field"><label>Date</label><input type="text" id="dateInput" disabled></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Source of Request *</label><select name="source"><option value="">Select…</option>'+
+        '<div class="field"><label>Source of Request *</label><select id="sourceSel" name="source"><option value="">Select…</option>'+
           SOURCES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
         '</select></div>'+
         '<div class="field"><label>Cancel Order or Item *</label><select name="scope" id="scopeSel"><option value="">Select…</option>'+
           SCOPES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
         '</select></div>'+
       '</div>'+
-      '<div class="field" id="itemsField" hidden style="margin-bottom:14px"><label>Items to Cancel *</label><textarea name="items" placeholder="List the specific item(s) being cancelled…"></textarea></div>'+
+      '<div class="field" id="itemsField" hidden style="margin-bottom:14px"><label>Items to Cancel *</label><textarea id="itemsInput" name="items" placeholder="List the specific item(s) being cancelled…"></textarea></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Agent Name</label><input type="text" value="'+esc(state.currentUser.username)+'" disabled></div>'+
-      '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea id="noteInput" name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Amount Status — Refund Via *</label><select name="refundMethod"><option value="">Select…</option>'+
+        '<div class="field"><label>Amount Status — Refund Via *</label><select id="refundMethodSel" name="refundMethod"><option value="">Select…</option>'+
           REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("")+
         '</select></div>'+
-        '<div class="field"><label>Retain / Not Retain *</label><select name="retain"><option value="">Select…</option>'+
+        '<div class="field"><label>Retain / Not Retain *</label><select id="retainSel" name="retain"><option value="">Select…</option>'+
           RETAIN_OPTIONS.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("")+
         '</select></div>'+
       '</div>'+
