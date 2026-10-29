@@ -836,14 +836,9 @@ function renderNewRequest(){
     '</form></div>'+
   '<div class="card etm-panel">'+
     '<h2 style="font-size:14.5px">ETM Auto-Fill</h2>'+
-    '<p class="sub">ETM\'s own server refuses to load inside another page — it rejects any embedded/cross-origin view with "Bad Request #400". That is enforced on ETM\'s side and can\'t be bypassed from this page. The working auto-fill path instead runs <b>inside ETM\'s own tab</b> and sends the data here — it fills the whole form, not just one field.</p>'+
-    '<ol style="margin:0 0 12px;padding-left:18px;font-size:12.5px;color:var(--ink-muted)">'+
-      '<li>Open ETM in a tab (buttons below), press F12 → Console tab.</li>'+
-      '<li>Click "Copy auto-fill script" below, paste it into the Console. If Chrome warns about pasting, type <code>allow pasting</code>, press Enter, then paste again.</li>'+
-      '<li>A small panel appears on the ETM page — type the order number(s) there and run it.</li>'+
-      '<li>Next to each fetched order, click <b>"➡ مكتب الإلغاء"</b> — this page opens in a new tab with the order number, mobile, amount and items already filled in.</li>'+
-    '</ol>'+
-    '<button type="button" class="btn primary" id="copyEtmScriptBtn" style="width:100%;justify-content:center;margin-bottom:12px">📋 Copy auto-fill script</button>'+
+    '<p class="sub">ETM\'s own server refuses to load inside another page — it rejects any embedded/cross-origin view with "Bad Request #400". That\'s enforced on ETM\'s side and can\'t be bypassed from here. The working path runs a one-click bookmark button <b>inside ETM\'s own tab</b> and sends the data to this page — no DevTools/console needed.</p>'+
+    '<a class="btn primary" href="etm-bookmarklet.html" target="_blank" style="width:100%;justify-content:center;margin-bottom:12px;text-decoration:none">⭐ Set up the ETM bookmarklet (one time)</a>'+
+    '<p class="sub" style="margin:0 0 12px;font-size:12px">Open that page once, drag the button to your bookmarks bar. After that: open ETM → click the bookmark → type the order number → click "➡ مكتب الإلغاء" next to the result, and this page opens pre-filled.</p>'+
     '<div class="btnrow" style="flex-direction:column;align-items:stretch;gap:10px">'+
       '<button type="button" class="btn" data-etm="web" style="justify-content:center">Open ETM — Web Order Search ↗</button>'+
       '<button type="button" class="btn" data-etm="ln" style="justify-content:center">Open ETM — LN Order Search ↗</button>'+
@@ -852,16 +847,6 @@ function renderNewRequest(){
   '</div>';
 }
 function wireNewRequest(){
-  var copyEtmBtn = $("#copyEtmScriptBtn");
-  if(copyEtmBtn) copyEtmBtn.addEventListener("click", function(){
-    fetch("etm-bulk-fetch.js").then(function(r){ return r.text(); }).then(function(txt){
-      return navigator.clipboard.writeText(txt);
-    }).then(function(){
-      toast("Script copied — paste it into ETM's browser console.");
-    }).catch(function(){
-      toast("Couldn't copy automatically — open etm-bulk-fetch.js in the repo and copy it manually.");
-    });
-  });
   var sel = $("#orderTypeSel");
   function syncWebOrder(){
     var isOnline = sel.value==="Online";
