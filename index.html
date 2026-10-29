@@ -144,6 +144,7 @@ textarea{resize:vertical;min-height:64px}
 
 .reqlist{display:flex;flex-direction:column;gap:10px}
 .reqcard{border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
+.reqlist .reqcard:nth-child(even){background:var(--surface-2)}
 .reqhead{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;flex-wrap:wrap}
 .reqhead .id{font-weight:800;font-size:13px;font-family:"Manrope",sans-serif}
 .reqhead .meta{color:var(--ink-faint);font-size:12px}
@@ -285,6 +286,10 @@ var PREFIX_MAP = {
 var SOURCES = ["Call Center","Care Email","Store"];
 var SCOPES = ["Whole Order","Specific Item(s)"];
 var REFUND_METHODS = ["Same Payment Method","Credit Note","Cash on Delivery"];
+// Display label only — the stored value stays "Cash on Delivery" everywhere
+// (data, finalStatusFor, etc.); this just makes clear to a reader that COD
+// means nothing was paid online, so there is nothing to refund.
+function refundLabel(v){ return v==="Cash on Delivery" ? "Cash on Delivery - No Refund" : v; }
 var RETAIN_OPTIONS = ["Retained","Not Retained"];
 /* Workflow: new -> approved/sent (store notified, kept from the original flow as an
    intermediate stage) -> one of the three closed "Cancelled ..." outcomes, picked
@@ -417,11 +422,11 @@ async function boot(){
 }
 
 /* ---------- auth actions ---------- */
-async function doRegister(username, role){
+async function doRegister(username, role, remember){
   try{
     var res = await apiCall("register", { username:username, role:role });
     state.currentUser = { username: res.username, role: res.role, password: "12345" };
-    persistSession();
+    if(remember) persistSession();
     state.route = (res.role==="agent") ? "new" : "requests";
     toast(res.isFirst ? "Account created — you're the administrator. Default password is 12345." : "Account created. Default password is 12345.");
     startPolling();
@@ -430,13 +435,13 @@ async function doRegister(username, role){
   }catch(e){ setAuthErr(authErrText(e.message)); }
 }
 
-async function doLogin(username, password, silentRestore){
-  username = (username||"").trim().toLowerCase();
+async function doLogin(username, password, silentRestore, remember){
+  username = (username||"").trim();
   if(!username || !password){ if(!silentRestore) setAuthErr("Enter your username and password."); return; }
   try{
     var res = await apiCall("login", { username:username, password:password });
     state.currentUser = { username: res.username, role: res.role, password: password };
-    persistSession();
+    if(silentRestore || remember) persistSession(); else { try{ localStorage.removeItem("ph_cancel_session"); }catch(e3){} }
     state.route = (res.role==="agent") ? "new" : "requests";
     startPolling();
     await refreshAll(true);
@@ -619,6 +624,20 @@ async function updateStatus(id, status, remark){
     await refreshAll(true);
   }catch(e){ toast("Couldn't update status: "+e.message); }
 }
+// Open to any logged-in user on a closed/cancelled request — appends a
+// timestamped, named entry to the history log without changing the status
+// (stage changes themselves stay restricted — see canUpdateStage()).
+async function addNote(id, note){
+  note = (note||"").trim();
+  if(!note){ toast("Write a note first."); return; }
+  var r = state.requests.filter(function(x){ return x.id===id; })[0];
+  if(!r) return;
+  try{
+    await apiCall("addNote", { caller: callerCred(), id:id, status:r.status, remark:note });
+    toast("Note added.");
+    await refreshAll(true);
+  }catch(e){ toast("Couldn't add the note: "+e.message); }
+}
 
 /* Builds a pre-filled email (subject + body) for the store and opens it in the
    user's default mail app (Outlook on most corporate Windows machines). */
@@ -650,6 +669,8 @@ function buildMailto(r, status, remark){
       lines.push("Kindly process the refund to the same payment method used for this order.");
     } else if(r.refundMethod === "Credit Note"){
       lines.push("Kindly process this as a Credit Note.");
+    } else if(r.refundMethod === "Cash on Delivery"){
+      lines.push("Cash on Delivery - No Refund required (payment was not collected online).");
     }
     lines.push("");
   }
@@ -660,7 +681,7 @@ function buildMailto(r, status, remark){
   lines.push("Status: "+(CLOSED_STATUSES.indexOf(status)>-1 ? STATUS[status].label : (status==="pending"||status==="new") ? "Pending for Review" : "Email sent to "+recipient));
   lines.push("Date: "+fmtDate(r.createdAt));
   lines.push("Amount: "+fmtMoney(r.amount));
-  lines.push("Refund Via: "+r.refundMethod);
+  lines.push("Refund Via: "+refundLabel(r.refundMethod));
   lines.push("Agent Name: "+r.agent);
   if(remark){ lines.push(""); lines.push("Remark: "+remark); }
   lines.push("");
@@ -679,6 +700,10 @@ function openStoreEmail(r, status, remark){
 
 /* ---------- derived data ---------- */
 function canAct(){ return state.currentUser && (state.currentUser.role==="operations" || state.currentUser.role==="admin"); }
+// Stage changes (New -> Sent to Store -> Cancelled...) are restricted to this
+// one account, not the whole Operations/Admin role.
+var STAGE_UPDATERS = ["shenoudah"];
+function canUpdateStage(){ return state.currentUser && STAGE_UPDATERS.indexOf(String(state.currentUser.username||"").toLowerCase())!==-1; }
 function isAdmin(){ return state.currentUser && state.currentUser.role==="admin"; }
 function scopedRequests(scope){
   var now=Date.now(), from=0, to=now+1;
@@ -741,8 +766,19 @@ function initGlobalEvents(){
     if(t = e.target.closest("[data-act]")){
       var id = t.dataset.id, act = t.dataset.act;
       var card = t.closest(".reqcard");
+      if(act==="__fromSelect"){
+        var stageSel = card && card.querySelector(".stageSelect");
+        act = stageSel ? stageSel.value : "";
+        if(!act) return;
+      }
       var remark = card && card.querySelector(".opsRemark") ? card.querySelector(".opsRemark").value : "";
       updateStatus(id, act, remark);
+      return;
+    }
+    if(t = e.target.closest("[data-note]")){
+      var noteCard = t.closest(".reqcard");
+      var noteEl2 = noteCard && noteCard.querySelector(".closedNote");
+      addNote(t.dataset.note, noteEl2 ? noteEl2.value : "");
       return;
     }
     if(t = e.target.closest("[data-toggle]")){
@@ -808,10 +844,11 @@ function renderAuth(){
 function renderLoginForm(){
   return '<form id="loginForm">'+
     '<div class="field" style="margin-bottom:12px"><label>Username</label><input type="text" name="username" autocomplete="username" required></div>'+
-    '<div class="field" style="margin-bottom:16px"><label>Password</label><input type="password" name="password" autocomplete="current-password" required></div>'+
+    '<div class="field" style="margin-bottom:10px"><label>Password</label><input type="password" name="password" autocomplete="current-password" required></div>'+
+    '<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-muted);margin-bottom:16px;cursor:pointer"><input type="checkbox" name="remember" style="width:auto"> Remember me on this device</label>'+
     '<button class="btn primary" style="width:100%;justify-content:center" type="submit">Log in</button>'+
     '</form>'+
-    '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">New employees start with the password <b>12345</b>, then change it under Account.</p>';
+    '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">New employees start with the password <b>12345</b>, then change it under Account. Username and password are case-sensitive.</p>';
 }
 function renderRegisterForm(){
   return '<form id="registerForm">'+
@@ -821,15 +858,16 @@ function renderRegisterForm(){
       '<label class="checked" data-role="agent"><input type="radio" name="role" value="agent" checked><span>Agent<br><small style="font-weight:400">Call center / sales</small></span></label>'+
       '<label data-role="operations"><input type="radio" name="role" value="operations"><span>Operations<br><small style="font-weight:400">Order fulfilment</small></span></label>'+
     '</div>'+
+    '<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-muted);margin-bottom:16px;cursor:pointer"><input type="checkbox" name="remember" style="width:auto"> Remember me on this device</label>'+
     '<button class="btn primary" style="width:100%;justify-content:center" type="submit">Create account</button>'+
     '</form>'+
     '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">Your password starts as <b>12345</b>. Change it any time from Account.</p>';
 }
 function wireAuth(){
   var lf = $("#loginForm");
-  if(lf) lf.addEventListener("submit", function(e){ e.preventDefault(); doLogin(lf.username.value, lf.password.value); });
+  if(lf) lf.addEventListener("submit", function(e){ e.preventDefault(); doLogin(lf.username.value, lf.password.value, false, lf.remember.checked); });
   var rf = $("#registerForm");
-  if(rf) rf.addEventListener("submit", function(e){ e.preventDefault(); var role = rf.querySelector('input[name=role]:checked').value; doRegister(rf.username.value, role); });
+  if(rf) rf.addEventListener("submit", function(e){ e.preventDefault(); var role = rf.querySelector('input[name=role]:checked').value; doRegister(rf.username.value, role, rf.remember.checked); });
 }
 
 /* ---------- SHELL ---------- */
@@ -904,7 +942,7 @@ function renderNewRequest(){
       '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea id="noteInput" name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Amount Status — Refund Via *</label><select id="refundMethodSel" name="refundMethod"><option value="">Select…</option>'+
-          REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("")+
+          REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'">'+esc(refundLabel(m))+'</option>'; }).join("")+
         '</select></div>'+
         '<div class="field"><label>Retain / Not Retain *</label><select id="retainSel" name="retain"><option value="">Select…</option>'+
           RETAIN_OPTIONS.map(function(m){ return '<option value="'+esc(m)+'">'+esc(m)+'</option>'; }).join("")+
@@ -1209,24 +1247,35 @@ function renderStepper(r){
 function renderReqCard(r){
   var open = state.openCard===r.id;
   var can = canAct();
+  var canStage = canUpdateStage();
+  var isClosed = CLOSED_STATUSES.indexOf(r.status)>-1;
   var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
   var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>' : '';
   var actions = "";
-  if(can && (r.status==="pending" || r.status==="new")){
-    actions = '<div class="opsbox"><label>Operations remark (optional, visible to the agent)</label>'+
+  if(canStage && (r.status==="pending" || r.status==="new")){
+    actions = '<div class="opsbox"><label>Update Stage</label>'+
+      '<select class="stageSelect">'+
+        '<option value="approved">Approve &amp; Send to Store</option>'+
+        '<option value="sent">Send to the Store</option>'+
+      '</select>'+
+      '<label style="margin-top:10px">Operations remark (optional, visible to the agent)</label>'+
       '<textarea class="opsRemark" placeholder="e.g. Confirmed with store, stock held."></textarea>'+
       '<div class="btnrow" style="margin-top:10px">'+
-        '<button class="btn good sm" data-act="approved" data-id="'+r.id+'">Approve &amp; Send to Store</button>'+
-        '<button class="btn info sm" data-act="sent" data-id="'+r.id+'">Send to the Store</button>'+
+        '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Update Stage</button>'+
       '</div></div>';
-  } else if(can && (r.status==="approved" || r.status==="sent")){
+  } else if(canStage && (r.status==="approved" || r.status==="sent")){
     var finalKey = finalStatusFor(r.refundMethod);
-    actions = '<div class="opsbox"><label>Operations remark (optional, visible to the agent)</label>'+
+    actions = '<div class="opsbox"><label>Update Stage</label>'+
+      '<select class="stageSelect"><option value="'+finalKey+'">Confirm Cancelled — '+STATUS[finalKey].label+'</option></select>'+
+      '<label style="margin-top:10px">Operations remark (optional, visible to the agent)</label>'+
       '<textarea class="opsRemark" placeholder="e.g. Store confirmed, refund processed."></textarea>'+
       '<div class="btnrow" style="margin-top:10px">'+
-        '<button class="btn good sm" data-act="'+finalKey+'" data-id="'+r.id+'">Confirm Cancelled — '+STATUS[finalKey].label+'</button>'+
+        '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Update Stage</button>'+
       '</div></div>';
   }
+  var noteBox = isClosed ? '<div class="opsbox"><label>Add a note (visible to everyone, does not change the status)</label>'+
+    '<textarea class="closedNote" placeholder="e.g. Customer called again to confirm."></textarea>'+
+    '<div class="btnrow" style="margin-top:10px"><button class="btn sm" data-note="'+r.id+'">Add Note</button></div></div>' : '';
   var hist = (r.history||[]).slice().reverse().map(function(h){
     return '<div class="hrow"><span class="t">'+fmtDate(h.at)+'</span><span>'+esc(STATUS[h.status]?STATUS[h.status].label:h.status)+' · '+esc(h.by)+(h.remark?' — '+esc(h.remark):'')+'</span></div>';
   }).join("");
@@ -1245,7 +1294,7 @@ function renderReqCard(r){
       '<span>'+esc(regionLabel)+'</span>'+
       '<span>'+esc(r.reason)+'</span>'+
       '<span>'+esc(r.source||"—")+'</span>'+
-      '<span>'+esc(r.refundMethod)+'</span>'+
+      '<span>'+esc(refundLabel(r.refundMethod))+'</span>'+
       retainBadge(r.retain)+
     '</div>'+
     '<div class="reqbody">'+
@@ -1257,7 +1306,7 @@ function renderReqCard(r){
         '<div><div class="k">Customer</div><div class="vv">'+(r.customerCode?esc(r.customerName||"")+' ('+esc(r.customerCode)+')':"—")+'</div></div>'+
         '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
         '<div><div class="k">Reason</div><div class="vv">'+esc(r.reason)+'</div></div>'+
-        '<div><div class="k">Refund Via</div><div class="vv">'+esc(r.refundMethod)+'</div></div>'+
+        '<div><div class="k">Refund Via</div><div class="vv">'+esc(refundLabel(r.refundMethod))+'</div></div>'+
         '<div><div class="k">Retention</div><div class="vv">'+retainBadge(r.retain)+'</div></div>'+
         '<div><div class="k">Agent</div><div class="vv">'+esc(r.agent)+'</div></div>'+
         '<div><div class="k">Submitted</div><div class="vv">'+fmtDate(r.createdAt)+'</div></div>'+
@@ -1270,6 +1319,7 @@ function renderReqCard(r){
       '<div class="history">'+hist+'</div>'+
       emailBtn+
       actions+
+      noteBox+
     '</div></div>';
 }
 function wireRequests(){
@@ -1337,7 +1387,7 @@ function renderDashboard(){
   var byAgent  = countBy(list, function(r){ return r.agent; });
   var byType = countBy(list, function(r){ return r.orderType; });
   var bySource = countBy(list, function(r){ return r.source || "Unspecified"; });
-  var byRefund = countBy(list, function(r){ return r.refundMethod; });
+  var byRefund = countBy(list, function(r){ return refundLabel(r.refundMethod); });
   var byRetain = countBy(list, function(r){ return r.retain; });
   var byStatus = countBy(list, function(r){ return STATUS[r.status]?STATUS[r.status].label:r.status; });
 
@@ -1383,7 +1433,7 @@ function renderDashboard(){
     chartCard("Source of Request", donutSVG(toPairs(bySource),{"Call Center":"cat-1","Care Email":"cat-5","Store":"cat-2","Unspecified":"cat-6"}))+
   '</div>'+
   '<div class="chartgrid">'+
-    chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4","Cash on Delivery":"cat-5"}))+
+    chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4","Cash on Delivery - No Refund":"cat-5"}))+
     chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
   '</div>'+
   chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Approved & Sent to the Store":"good","Sent to the Store":"info","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"}))+

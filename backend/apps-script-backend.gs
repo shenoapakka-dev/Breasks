@@ -4,6 +4,10 @@
  * page can call it with no Google/Claude login from the employee's side.
  */
 var APP_KEY = "daQs4oFH4psq9jc9p8d669jFtm1Q7tBq"; // must match API_KEY in the HTML page
+// Stage changes (New -> Sent to Store -> Cancelled...) are restricted to this
+// one account, not the whole Operations/Admin role. Lowercase, compared
+// case-insensitively regardless of the account's actual stored case.
+var STAGE_UPDATERS = ["shenoudah"];
 
 function doPost(e) {
   var lock = LockService.getScriptLock();
@@ -32,7 +36,8 @@ function route(body) {
     case "login": return login(body.username, body.password);
     case "getAll": requireCaller(body.caller); return getAll();
     case "submitRequest": requireCaller(body.caller); return submitRequest(body.caller.username, body.data);
-    case "updateStatus": requireRole(body.caller, ["operations", "admin"]); return updateStatus(body.id, body.status, body.caller.username, body.remark);
+    case "updateStatus": requireStageUpdater(body.caller); return updateStatus(body.id, body.status, body.caller.username, body.remark);
+    case "addNote": requireCaller(body.caller); return updateStatus(body.id, body.status, body.caller.username, body.remark);
     case "changePassword": return changePassword(body.caller.username, body.caller.password, body.next);
     case "adminSetRole": requireRole(body.caller, ["admin"]); return adminSetRole(body.target, body.role);
     case "adminResetPassword": requireRole(body.caller, ["admin"]); return adminResetPassword(body.target);
@@ -88,7 +93,8 @@ function migrateAddCustomerFields() {
 }
 
 /* ---------- helpers ---------- */
-function normalizeUsername(u) { return String(u || "").trim().toLowerCase(); }
+// Case-sensitive on purpose: "ShenoudaH" and "shenoudah" are different accounts.
+function normalizeUsername(u) { return String(u || "").trim(); }
 function activeSS() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error("no_spreadsheet_bound: open this script via Extensions > Apps Script from inside the actual Google Sheet, not from script.google.com directly");
@@ -133,6 +139,11 @@ function requireCaller(caller) {
 function requireRole(caller, roles) {
   var u = requireCaller(caller);
   if (roles.indexOf(u.role) === -1) throw new Error("forbidden");
+  return u;
+}
+function requireStageUpdater(caller) {
+  var u = requireCaller(caller);
+  if (STAGE_UPDATERS.indexOf(String(u.username || "").toLowerCase()) === -1) throw new Error("forbidden_stage_update");
   return u;
 }
 
