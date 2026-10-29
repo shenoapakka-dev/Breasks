@@ -67,7 +67,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .linkbtn{background:none;border:none;color:var(--ink-muted);font-size:13px;cursor:pointer;text-decoration:underline;padding:4px}
 .linkbtn:hover{color:var(--ink)}
 
-main{max-width:1180px;margin:0 auto;padding:20px 0 60px}
+main{max-width:1600px;margin:0 auto;padding:20px 24px 60px}
 .view{display:flex;flex-direction:column;gap:18px}
 
 .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow)}
@@ -126,7 +126,7 @@ textarea{resize:vertical;min-height:64px}
 
 .chartgrid{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
 @media (max-width:900px){.chartgrid{grid-template-columns:1fr}}
-.newreq-layout{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.newreq-layout{display:grid;grid-template-columns:3fr 1fr;gap:16px;align-items:start}
 @media (max-width:980px){.newreq-layout{grid-template-columns:1fr}}
 .hbarlist{display:flex;flex-direction:column;gap:9px}
 .hbarrow{display:grid;grid-template-columns:150px 1fr 48px;gap:10px;align-items:center;min-width:0}
@@ -943,13 +943,26 @@ function wireNewRequest(){
     var prefix = (lnVal.length>=2 ? lnVal.slice(0,2) : (webVal.length>=2 ? webVal.slice(0,2) : ""));
     var hint = $("#regionHint"), regionEl = $("#regionSel");
     var matches = PREFIX_MAP[prefix];
-    if(!matches){ hint.textContent=""; return; }
-    if(matches.length===1){
-      regionEl.value = matches[0].region;
-      hint.textContent = "Detected: "+branchName(matches[0]);
-      syncCurrency();
+    if(matches){
+      if(matches.length===1){
+        regionEl.value = matches[0].region;
+        sel.value = matches[0].type; syncWebOrder();
+        hint.textContent = "Detected: "+branchName(matches[0]);
+        syncCurrency();
+      } else {
+        hint.textContent = "Prefix matches more than one branch — confirm the region: "+matches.map(branchName).join(" / ");
+      }
+      return;
+    }
+    // Branch prefix not in our list — fall back to the general rule: an order
+    // number starting with "W" is always Online, anything else is Store. Region
+    // still needs picking manually since we don't know which branch this is.
+    if(prefix){
+      sel.value = (prefix.charAt(0)==="W") ? "Online" : "Store";
+      syncWebOrder();
+      hint.textContent = "Detected: "+sel.value+" order (branch not in our list — confirm the region manually)";
     } else {
-      hint.textContent = "Prefix matches more than one branch — confirm the region: "+matches.map(branchName).join(" / ");
+      hint.textContent = "";
     }
   }
   function checkDuplicateOrderNo(){
