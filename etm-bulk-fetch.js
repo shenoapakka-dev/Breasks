@@ -78,7 +78,16 @@
         (r.Result === 'OK' ? `<td><button class="g" data-send="${i}">➡ مكتب الإلغاء</button></td>` : '<td></td>') + '</tr>').join('') + '</table>';
     $('cxOut').innerHTML = t;
     $('cxOut').querySelectorAll('[data-send]').forEach(b => {
-      b.onclick = () => window.open(sendUrl(rows[+b.dataset.send]), '_blank');
+      b.onclick = () => {
+        let url;
+        try { url = sendUrl(rows[+b.dataset.send]); }
+        catch (e) { alert('خطأ: ' + e.message); return; }
+        let w = null;
+        try { w = window.open(url, '_blank'); } catch (e) {}
+        // بعض متصفحات الشركات بتمنع فتح تاب جديد (popup) بسياسة أمان —
+        // لو حصل ده، نروح لصفحة الإلغاء في نفس التاب بدل ما الزرار يفضل من غير أي رد فعل.
+        if (!w) location.href = url;
+      };
     });
   }
   const toDelim = sep => [COLS, ...rows.map(r => COLS.map(c => r[c] ?? ''))]
