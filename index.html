@@ -154,6 +154,16 @@ textarea{resize:vertical;min-height:64px}
 .reqcard.open .chev{transform:rotate(90deg)}
 .reqbody{border-top:1px solid var(--border);padding:14px;display:none}
 .reqcard.open .reqbody{display:block}
+.stepper{display:flex;align-items:flex-start;margin-bottom:16px;overflow-x:auto;padding-bottom:2px}
+.stepper .step{display:flex;flex-direction:column;align-items:center;min-width:108px;text-align:center}
+.stepper .step-dot{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:2px solid var(--border);background:var(--surface-2);color:var(--ink-faint);flex:none}
+.stepper .step.done .step-dot{background:var(--good);border-color:var(--good);color:#fff}
+.stepper .step.current .step-dot{border-color:var(--ink);color:var(--ink);background:var(--surface)}
+.stepper .step-label{font-size:11px;font-weight:700;margin-top:6px;color:var(--ink)}
+.stepper .step.upcoming .step-label{color:var(--ink-faint)}
+.stepper .step-meta{font-size:10px;color:var(--ink-faint);margin-top:2px}
+.stepper .step-line{flex:1;height:2px;background:var(--border);margin-top:12px;min-width:16px}
+.stepper .step-line.done{background:var(--good)}
 .kv{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:12.5px;margin-bottom:12px}
 @media (max-width:760px){.kv{grid-template-columns:repeat(2,1fr)}}
 .kv .k{color:var(--ink-faint);text-transform:uppercase;font-size:10.5px;font-weight:700;letter-spacing:.03em}
@@ -903,7 +913,7 @@ function renderNewRequest(){
       '<button type="button" class="btn" data-etm="ln" style="justify-content:center">Open ETM — LN Order Search ↗</button>'+
     '</div>'+
     '<label>Paste the order details here</label>'+
-    '<textarea id="etmPasteBox" placeholder="Select the order\'s details on ETM (Mobile, Total, the items table…), copy (Ctrl+C), and paste here…" style="width:100%;height:150px;font-family:ui-monospace,Consolas,monospace;font-size:11px"></textarea>'+
+    '<textarea id="etmPasteBox" placeholder="Paste the copied ETM order details here…" style="width:100%;height:64px;font-family:ui-monospace,Consolas,monospace;font-size:11px"></textarea>'+
     '<button type="button" class="btn primary" id="etmParseBtn" style="width:100%;justify-content:center;margin-top:8px">⚡ Auto-fill from paste</button>'+
     '<p id="etmParseHint" style="margin-top:8px;font-size:11.5px;color:var(--ink-faint);min-height:14px"></p>'+
   '</div>'+
@@ -1147,6 +1157,30 @@ function renderRequests(){
     '<div class="reqlist">'+rows+'</div>'+
     '</div>';
 }
+var STAGE_DEFS = [
+  { statuses:["new","pending"], label:"Submitted" },
+  { statuses:["approved","sent"], label:"Sent to Store" },
+  { statuses:["cancelled_refund","cancelled_credit","cancelled_cdf"], label:"Cancelled" }
+];
+function stageIndexFor(status){
+  for(var i=0;i<STAGE_DEFS.length;i++){ if(STAGE_DEFS[i].statuses.indexOf(status)!==-1) return i; }
+  return 0;
+}
+function lastHistFor(r, statuses){
+  var matches = (r.history||[]).filter(function(h){ return statuses.indexOf(h.status)!==-1; });
+  return matches.length ? matches[matches.length-1] : null;
+}
+function renderStepper(r){
+  var curIdx = stageIndexFor(r.status);
+  return '<div class="stepper">'+STAGE_DEFS.map(function(s,i){
+    var cls = i<curIdx ? "done" : (i===curIdx ? "current" : "upcoming");
+    var hist = lastHistFor(r, s.statuses);
+    var label = (i===STAGE_DEFS.length-1 && cls!=="upcoming" && STATUS[r.status]) ? STATUS[r.status].label : s.label;
+    var meta = hist ? fmtDate(hist.at)+(hist.by?" · "+esc(hist.by):"") : (cls==="upcoming" ? "Pending" : "");
+    var connector = i>0 ? '<div class="step-line '+(i<=curIdx?"done":"")+'"></div>' : "";
+    return connector+'<div class="step '+cls+'"><div class="step-dot">'+(cls==="done"?"✓":(i+1))+'</div><div class="step-info"><div class="step-label">'+esc(label)+'</div><div class="step-meta">'+esc(meta)+'</div></div></div>';
+  }).join("")+'</div>';
+}
 function renderReqCard(r){
   var open = state.openCard===r.id;
   var can = canAct();
@@ -1189,6 +1223,7 @@ function renderReqCard(r){
       retainBadge(r.retain)+
     '</div>'+
     '<div class="reqbody">'+
+      renderStepper(r)+
       '<div class="kv">'+
         '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber)+' <button type="button" class="linkbtn" data-etm="web" data-etm-value="'+esc(r.webOrderNumber)+'" style="padding:0">↗ ETM</button>':"N/A — Store order")+'</div></div>'+
         '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+' <button type="button" class="linkbtn" data-etm="ln" data-etm-value="'+esc(r.lnOrder)+'" style="padding:0">↗ ETM</button></div></div>'+
@@ -1204,6 +1239,7 @@ function renderReqCard(r){
       '</div>'+
       (r.items ? '<div class="note-box"><b>Items to cancel:</b> '+esc(r.items)+'</div>' : '')+
       '<div class="note-box">'+esc(r.note)+'</div>'+
+      '<div style="color:var(--ink-faint);text-transform:uppercase;font-size:10.5px;font-weight:700;letter-spacing:.03em;margin:12px 0 6px">History</div>'+
       '<div class="history">'+hist+'</div>'+
       emailBtn+
       actions+
