@@ -463,6 +463,52 @@ function findDuplicateRequest(lnVal, webVal){
   })[0];
 }
 
+/* Parses the plain text an agent copy-pastes straight off an ETM order-details page
+   (both the LN "Order Search" and the "Order Search WEB" layouts use the same
+   label-then-value-on-next-line shape, and both header lines read
+   "Order ( <LN order no> ) Details" even when the search box held the web order
+   number instead — that's how we tell the two numbers apart). */
+function parseEtmPaste(raw){
+  var text = String(raw||"").replace(/\r\n/g, "\n");
+  var splitAt = text.search(/Line\s*\t?Item\s*\t?Description/i);
+  var head = splitAt>=0 ? text.slice(0, splitAt) : text;
+  var itemsText = splitAt>=0 ? text.slice(splitAt) : "";
+
+  function field(label){
+    var re = new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\s*\\n+\\s*([^\\n]+)", "i");
+    var m = head.match(re);
+    return m ? m[1].trim() : "";
+  }
+
+  var lnMatch = head.match(/Order\s*\(\s*([A-Za-z0-9]{6,12})\s*\)\s*Details/i);
+  var lnOrder = lnMatch ? lnMatch[1].toUpperCase() : "";
+
+  var webOrderNumber = "";
+  head.split("\n").map(function(l){ return l.trim(); }).some(function(t){
+    if(/^[A-Za-z0-9]{9}$/.test(t) && t.toUpperCase()!==lnOrder){ webOrderNumber = t.toUpperCase(); return true; }
+    return false;
+  });
+
+  var mobile = field("Mobile").split("|")[0].trim();
+  var totalRaw = field("Total").replace(/[^\d.]/g,"");
+  var total = totalRaw!=="" ? parseFloat(totalRaw) : null;
+  var paidRaw = field("Paid Amount").replace(/[^\d.]/g,"");
+  var paid = paidRaw!=="" ? parseFloat(paidRaw) : null;
+
+  var items = [];
+  if(itemsText){
+    itemsText.split("\n").slice(1).forEach(function(row){
+      var c = row.split("\t").map(function(x){ return x.trim(); });
+      if(c.length<9) return;
+      var code = c[1], desc = c[2], qty = parseFloat(c[4])||0, lineTotal = parseFloat(c[8])||0;
+      if(!code || !qty) return;
+      items.push({ code:code, desc:desc, qty:qty, unitPrice: qty ? lineTotal/qty : lineTotal });
+    });
+  }
+
+  return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items };
+}
+
 async function submitRequest(){
   clearInvalidFields();
   var ORDER_NO_RE = /^[A-Za-z0-9]{9}$/;
@@ -821,7 +867,7 @@ function renderNewRequest(){
           SCOPES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
         '</select></div>'+
       '</div>'+
-      '<div class="field" id="itemsField" hidden style="margin-bottom:14px"><label>Items to Cancel *</label><textarea id="itemsInput" name="items" placeholder="List the specific item(s) being cancelled…"></textarea></div>'+
+      '<div class="field" id="itemsField" hidden style="margin-bottom:14px"></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Agent Name</label><input type="text" value="'+esc(state.currentUser.username)+'" disabled></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea id="noteInput" name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
@@ -835,14 +881,16 @@ function renderNewRequest(){
       '<div class="btnrow"><button class="btn primary" type="submit">Submit request</button></div>'+
     '</form></div>'+
   '<div class="card etm-panel">'+
-    '<h2 style="font-size:14.5px">ETM Auto-Fill</h2>'+
-    '<p class="sub">ETM\'s own server refuses to load inside another page — it rejects any embedded/cross-origin view with "Bad Request #400". That\'s enforced on ETM\'s side and can\'t be bypassed from here. The working path runs a one-click bookmark button <b>inside ETM\'s own tab</b> and sends the data to this page — no DevTools/console needed.</p>'+
-    '<a class="btn primary" href="etm-bookmarklet.html" target="_blank" style="width:100%;justify-content:center;margin-bottom:12px;text-decoration:none">⭐ Set up the ETM bookmarklet (one time)</a>'+
-    '<p class="sub" style="margin:0 0 12px;font-size:12px">Open that page once, drag the button to your bookmarks bar. After that: open ETM → click the bookmark → type the order number → click "➡ مكتب الإلغاء" next to the result, and this page opens pre-filled.</p>'+
-    '<div class="btnrow" style="flex-direction:column;align-items:stretch;gap:10px">'+
+    '<h2 style="font-size:14.5px">Paste from ETM</h2>'+
+    '<p class="sub">ETM\'s own server refuses to load inside another page — it rejects any embedded/cross-origin view with "Bad Request #400". Open the order in ETM, select its details and copy, then paste them below — the fields on the left fill in automatically.</p>'+
+    '<div class="btnrow" style="flex-direction:column;align-items:stretch;gap:10px;margin-bottom:12px">'+
       '<button type="button" class="btn" data-etm="web" style="justify-content:center">Open ETM — Web Order Search ↗</button>'+
       '<button type="button" class="btn" data-etm="ln" style="justify-content:center">Open ETM — LN Order Search ↗</button>'+
     '</div>'+
+    '<label>Paste the order details here</label>'+
+    '<textarea id="etmPasteBox" placeholder="Select the order\'s details on ETM (Mobile, Total, the items table…), copy (Ctrl+C), and paste here…" style="width:100%;height:150px;font-family:ui-monospace,Consolas,monospace;font-size:11px"></textarea>'+
+    '<button type="button" class="btn primary" id="etmParseBtn" style="width:100%;justify-content:center;margin-top:8px">⚡ Auto-fill from paste</button>'+
+    '<p id="etmParseHint" style="margin-top:8px;font-size:11.5px;color:var(--ink-faint);min-height:14px"></p>'+
   '</div>'+
   '</div>';
 }
@@ -897,53 +945,163 @@ function wireNewRequest(){
   form.lnOrder.addEventListener("input", function(){ detectFromOrderNo(); checkDuplicateOrderNo(); });
   form.webOrderNumber.addEventListener("input", function(){ detectFromOrderNo(); checkDuplicateOrderNo(); });
 
+  var etmParsed = null;          // last parsed ETM paste: {lnOrder,webOrderNumber,mobile,total,paid,items[]}
+  var itemSelections = [];       // [{code,desc,unitPrice,orderedQty,cancelQty,checked}]
+  var extraCharges = [];         // [{desc,amount}] — e.g. a delivery fee the agent adds manually
+
+  function lineAmount(it){ return it.checked ? (it.cancelQty*it.unitPrice) : 0; }
+  function grandItemsTotal(){
+    var t = itemSelections.reduce(function(s,it){ return s+lineAmount(it); }, 0);
+    t += extraCharges.reduce(function(s,c){ return s+(Number(c.amount)||0); }, 0);
+    return t;
+  }
+  function syncItemsTotals(rebuild){
+    if(rebuild){ buildItemPicker(); return; }
+    itemSelections.forEach(function(it,i){
+      var cell = document.querySelector('[data-rowkey="i'+i+'"] .itm-line-total');
+      if(cell) cell.textContent = lineAmount(it).toFixed(2);
+    });
+    extraCharges.forEach(function(c,i){
+      var cell = document.querySelector('[data-rowkey="x'+i+'"] .itm-line-total');
+      if(cell) cell.textContent = Number(c.amount||0).toFixed(2);
+    });
+    var gt = $("#itmGrandTotal"); if(gt) gt.textContent = grandItemsTotal().toFixed(2);
+    var amt = $("#amountInput"); if(amt) amt.value = grandItemsTotal().toFixed(2);
+    var txt = itemSelections.filter(function(it){ return it.checked && it.cancelQty>0; })
+      .map(function(it){ return it.desc+" ("+it.code+") — cancel "+it.cancelQty+" of "+it.orderedQty+" @ "+it.unitPrice.toFixed(2)+" = "+lineAmount(it).toFixed(2); })
+      .concat(extraCharges.filter(function(c){ return c.desc && Number(c.amount); }).map(function(c){ return c.desc+" = "+Number(c.amount).toFixed(2); }))
+      .join("\n");
+    var ti = $("#itemsInput"); if(ti) ti.value = txt;
+  }
+  function buildItemPicker(){
+    var field = $("#itemsField");
+    if(!itemSelections.length){
+      field.innerHTML = '<label>Items to Cancel *</label><textarea id="itemsInput" name="items" placeholder="List the specific item(s) being cancelled… (paste the ETM order details on the right to get a checklist instead)"></textarea>';
+      return;
+    }
+    var rows = itemSelections.map(function(it,i){
+      return '<tr data-rowkey="i'+i+'">'+
+        '<td><input type="checkbox" data-isel="'+i+'" '+(it.checked?"checked":"")+'></td>'+
+        '<td style="text-align:right">'+esc(it.desc)+' <span style="color:var(--ink-faint)">('+esc(it.code)+')</span></td>'+
+        '<td style="text-align:center">'+it.orderedQty+'</td>'+
+        '<td style="text-align:center">'+it.unitPrice.toFixed(2)+'</td>'+
+        '<td style="text-align:center"><input type="number" min="0" max="'+it.orderedQty+'" step="1" data-iqty="'+i+'" value="'+it.cancelQty+'" style="width:56px;padding:4px" '+(it.checked?"":"disabled")+'></td>'+
+        '<td class="itm-line-total" style="text-align:center">'+lineAmount(it).toFixed(2)+'</td>'+
+      '</tr>';
+    }).join("");
+    var extras = extraCharges.map(function(c,i){
+      return '<tr data-rowkey="x'+i+'">'+
+        '<td></td>'+
+        '<td colspan="3"><input type="text" data-exdesc="'+i+'" value="'+esc(c.desc)+'" placeholder="e.g. Delivery fee" style="width:100%;padding:4px"></td>'+
+        '<td style="text-align:center"><input type="number" step="0.01" data-examt="'+i+'" value="'+(c.amount||"")+'" style="width:70px;padding:4px"></td>'+
+        '<td class="itm-line-total" style="text-align:center">'+Number(c.amount||0).toFixed(2)+'</td>'+
+      '</tr>';
+    }).join("");
+    field.innerHTML =
+      '<label>Items to Cancel *</label>'+
+      '<table style="width:100%;border-collapse:collapse;font-size:12px">'+
+        '<tr><th></th><th style="text-align:right">Item</th><th>Ordered</th><th>Unit price</th><th>Cancel qty</th><th>Amount</th></tr>'+
+        rows + extras +
+        '<tr><td colspan="6" style="padding-top:6px"><button type="button" class="linkbtn" id="addExtraChargeBtn">+ Add other charge/item</button></td></tr>'+
+        '<tr><td colspan="4"></td><td style="font-weight:700;text-align:center">Total</td><td id="itmGrandTotal" style="font-weight:700;text-align:center">0.00</td></tr>'+
+      '</table>'+
+      '<style>#itemsField th{font-size:10.5px;color:var(--ink-faint);text-align:center;padding:4px}#itemsField td{border-top:1px solid var(--border);padding:5px 4px}</style>'+
+      '<textarea id="itemsInput" name="items" hidden></textarea>';
+    syncItemsTotals();
+  }
+  $("#itemsField").addEventListener("change", function(e){
+    var t = e.target;
+    if(t.dataset.isel!==undefined){
+      var i = +t.dataset.isel;
+      itemSelections[i].checked = t.checked;
+      if(t.checked && !itemSelections[i].cancelQty) itemSelections[i].cancelQty = itemSelections[i].orderedQty;
+      buildItemPicker();
+    } else if(t.dataset.iqty!==undefined){
+      var j = +t.dataset.iqty;
+      itemSelections[j].cancelQty = Math.max(0, Math.min(itemSelections[j].orderedQty, parseFloat(t.value)||0));
+      syncItemsTotals();
+    } else if(t.dataset.exdesc!==undefined){
+      extraCharges[+t.dataset.exdesc].desc = t.value; syncItemsTotals();
+    } else if(t.dataset.examt!==undefined){
+      extraCharges[+t.dataset.examt].amount = parseFloat(t.value)||0; syncItemsTotals();
+    }
+  });
+  $("#itemsField").addEventListener("input", function(e){
+    if(e.target.dataset.iqty!==undefined || e.target.dataset.examt!==undefined || e.target.dataset.exdesc!==undefined){
+      // live update while typing, without rebuilding the table (would steal focus)
+      var t = e.target;
+      if(t.dataset.iqty!==undefined){ itemSelections[+t.dataset.iqty].cancelQty = Math.max(0, Math.min(itemSelections[+t.dataset.iqty].orderedQty, parseFloat(t.value)||0)); }
+      if(t.dataset.examt!==undefined){ extraCharges[+t.dataset.examt].amount = parseFloat(t.value)||0; }
+      if(t.dataset.exdesc!==undefined){ extraCharges[+t.dataset.exdesc].desc = t.value; }
+      syncItemsTotals();
+    }
+  });
+  $("#itemsField").addEventListener("click", function(e){
+    if(e.target.id==="addExtraChargeBtn"){ extraCharges.push({desc:"",amount:0}); buildItemPicker(); }
+  });
+
   var scopeSel = $("#scopeSel");
   function syncScope(){
     var isItem = scopeSel.value==="Specific Item(s)";
     var field = $("#itemsField");
     field.hidden = !isItem;
-    if(!isItem) field.querySelector("textarea").value="";
+    if(isItem){
+      buildItemPicker();
+    } else {
+      field.innerHTML = "";
+      if(etmParsed && etmParsed.total!=null) $("#amountInput").value = etmParsed.total;
+    }
   }
   scopeSel.addEventListener("change", syncScope);
   syncScope();
+
+  var etmParseBtn = $("#etmParseBtn");
+  if(etmParseBtn) etmParseBtn.addEventListener("click", function(){
+    var raw = $("#etmPasteBox").value;
+    var hint = $("#etmParseHint");
+    if(!raw.trim()){ hint.textContent = "Paste the ETM order details first."; return; }
+    var parsed = parseEtmPaste(raw);
+    if(!parsed.lnOrder && !parsed.mobile && !parsed.items.length){
+      hint.textContent = "Couldn't recognize this text — select and copy the whole order-details block from ETM (including Mobile / Total / the items table), then paste it here.";
+      return;
+    }
+    etmParsed = parsed;
+    if(parsed.lnOrder) form.lnOrder.value = parsed.lnOrder;
+    if(parsed.webOrderNumber){ form.webOrderNumber.value = parsed.webOrderNumber; sel.value = "Online"; syncWebOrder(); }
+    detectFromOrderNo(); checkDuplicateOrderNo();
+    if(parsed.mobile) $("#mobileInput").value = parsed.mobile;
+    if(parsed.paid===0) $("#refundMethodSel").value = "Cash on Delivery";
+    itemSelections = parsed.items.map(function(it){ return { code:it.code, desc:it.desc, unitPrice:it.unitPrice, orderedQty:it.qty, cancelQty:it.qty, checked:false }; });
+    extraCharges = [];
+    if(scopeSel.value==="Whole Order" && parsed.total!=null) $("#amountInput").value = parsed.total;
+    if(scopeSel.value==="Specific Item(s)") buildItemPicker();
+    hint.textContent = "✓ Filled from ETM — check the fields, then submit.";
+    toast("Auto-filled from the pasted ETM data.");
+  });
 
   var dateEl = $("#dateInput");
   if(dateEl) dateEl.value = new Date().toLocaleDateString(undefined,{weekday:"short",day:"2-digit",month:"short",year:"numeric"});
 
   /* Optional CTI/CCS screen-pop integration: if your call center system can open this
      page with the caller's number (and region) as URL parameters — e.g.
-     https://.../?mobile=0501234567&region=UAE — those fields are pre-filled automatically.
-
-     Same mechanism also used by the ETM bulk-fetch console script's "Send to Cancel
-     Desk" button (see etm-bulk-fetch.js): after it scrapes one order from ETM (same-origin,
-     so it's allowed to read the page — ETM itself blocks any cross-origin embed/fetch of
-     its data, which is why that script has to run inside ETM's own tab), it opens this page
-     with ?order=&mobile=&amount=&items= already filled in, so the agent lands here with
-     the whole form pre-filled instead of retyping anything. */
+     https://.../?mobile=0501234567&region=UAE — those fields are pre-filled automatically. */
   try{
     var qp = new URLSearchParams(location.search);
-    var mobileEl = $("#mobileInput"), regionEl = $("#regionSel"), amountEl = $("#amountInput");
+    var mobileEl = $("#mobileInput"), regionEl = $("#regionSel");
     if(qp.get("mobile") && mobileEl) mobileEl.value = qp.get("mobile");
     if(qp.get("region") && regionEl){ regionEl.value = qp.get("region").toUpperCase(); syncCurrency(); }
-    var orderQp = qp.get("order");
-    if(orderQp){
-      form.lnOrder.value = orderQp.trim().toUpperCase();
-      detectFromOrderNo();
-      checkDuplicateOrderNo();
-    }
-    if(qp.get("amount") && amountEl){ amountEl.value = qp.get("amount"); }
-    if(qp.get("items")){
-      scopeSel.value = "Specific Item(s)";
-      syncScope();
-      $("#itemsInput").value = qp.get("items");
-    }
-    if(orderQp || qp.get("mobile")) toast("Auto-filled from ETM — check the details then submit.");
   }catch(e){}
 
   form.addEventListener("submit", async function(e){
     e.preventDefault();
     var ok = await submitRequest();
-    if(ok){ form.reset(); syncWebOrder(); syncScope(); syncCurrency(); clearInvalidFields(); checkDuplicateOrderNo(); $("#regionHint").textContent=""; }
+    if(ok){
+      form.reset(); syncWebOrder(); syncCurrency(); clearInvalidFields(); checkDuplicateOrderNo(); $("#regionHint").textContent="";
+      etmParsed = null; itemSelections = []; extraCharges = [];
+      var pasteBox = $("#etmPasteBox"); if(pasteBox) pasteBox.value = "";
+      var hint2 = $("#etmParseHint"); if(hint2) hint2.textContent = "";
+      syncScope();
+    }
   });
   // Clear the red highlight on a field the moment the agent starts fixing it.
   form.addEventListener("input", function(e){ markField(e.target, false); });
