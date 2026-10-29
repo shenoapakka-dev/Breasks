@@ -47,7 +47,7 @@ function setup() {
   if (u.getLastRow() === 0) u.appendRow(["username", "password", "role", "createdAt"]);
   var r = ss.getSheetByName("Requests") || ss.insertSheet("Requests");
   if (r.getLastRow() === 0) {
-    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items"]);
+    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName"]);
   }
   var def = ss.getSheetByName("Sheet1");
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 2) ss.deleteSheet(def);
@@ -76,6 +76,17 @@ function migrateAddSourceScopeItems() {
   toAdd.forEach(function (h, i) { r.getRange(1, lastCol + i + 1).setValue(h); });
 }
 
+/* One-time migration: run this ONCE if your "Requests" tab predates the
+   "customerCode" / "customerName" fields (the CU... customer account number
+   and name, parsed from a pasted ETM order). Safe to run more than once. */
+function migrateAddCustomerFields() {
+  var r = requestsSheet();
+  var lastCol = r.getLastColumn();
+  var headers = r.getRange(1, 1, 1, lastCol).getValues()[0];
+  var toAdd = ["customerCode", "customerName"].filter(function (h) { return headers.indexOf(h) === -1; });
+  toAdd.forEach(function (h, i) { r.getRange(1, lastCol + i + 1).setValue(h); });
+}
+
 /* ---------- helpers ---------- */
 function normalizeUsername(u) { return String(u || "").trim().toLowerCase(); }
 function activeSS() {
@@ -96,7 +107,7 @@ function requestsSheet() {
   var sh = ss.getSheetByName("Requests");
   if (!sh) {
     sh = ss.insertSheet("Requests");
-    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items"]);
+    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName"]);
   }
   return sh;
 }
@@ -176,7 +187,7 @@ function submitRequest(agentUsername, d) {
   sh.appendRow([
     id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.mobile || "", d.region,
     Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "new", now, JSON.stringify(history),
-    d.source || "", d.scope || "", d.items || ""
+    d.source || "", d.scope || "", d.items || "", d.customerCode || "", d.customerName || ""
   ]);
   return { id: id };
 }
@@ -215,7 +226,8 @@ function getAll() {
       webOrderNumber: rd[j][4], lnOrder: rd[j][5], mobile: rd[j][6], region: rd[j][7],
       amount: rd[j][8], reason: rd[j][9], note: rd[j][10], refundMethod: rd[j][11], retain: rd[j][12],
       status: rd[j][13], updatedAt: rd[j][14], history: history,
-      source: rd[j][16] || "", scope: rd[j][17] || "", items: rd[j][18] || ""
+      source: rd[j][16] || "", scope: rd[j][17] || "", items: rd[j][18] || "",
+      customerCode: rd[j][19] || "", customerName: rd[j][20] || ""
     });
   }
   return { users: users, requests: requests };

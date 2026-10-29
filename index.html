@@ -520,6 +520,10 @@ function parseEtmPaste(raw){
   var paidRaw = field("Paid Amount").replace(/[^\d.]/g,"");
   var paid = paidRaw!=="" ? parseFloat(paidRaw) : null;
 
+  var customerCode = "", customerName = "";
+  var custMatch = field("Customer").match(/^(CU\d+)\s*\|\s*(.+?)\s*-?\s*$/i);
+  if(custMatch){ customerCode = custMatch[1].toUpperCase(); customerName = custMatch[2].trim(); }
+
   var items = [];
   if(itemsText){
     itemsText.split("\n").slice(1).forEach(function(row){
@@ -531,7 +535,7 @@ function parseEtmPaste(raw){
     });
   }
 
-  return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items };
+  return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items, customerCode:customerCode, customerName:customerName };
 }
 
 async function submitRequest(){
@@ -596,7 +600,8 @@ async function submitRequest(){
     lnOrder: lnVal, mobile: mobileEl.value.trim(), orderType: orderType, region: regionEl.value,
     amount: parseFloat(amountEl.value), reason: reasonEl.value, note: noteEl.value.trim(),
     refundMethod: refundEl.value, retain: retainEl.value,
-    source: sourceEl.value, scope: scopeEl.value, items: scopeEl.value==="Specific Item(s)" ? itemsEl.value.trim() : ""
+    source: sourceEl.value, scope: scopeEl.value, items: scopeEl.value==="Specific Item(s)" ? itemsEl.value.trim() : "",
+    customerCode: ($("#customerCodeInput")||{}).value || "", customerName: ($("#customerNameInput")||{}).value || ""
   };
   try{
     var res = await apiCall("submitRequest", { caller: callerCred(), data: data });
@@ -699,7 +704,7 @@ function filteredRequests(){
     if(f.region && r.region!==f.region) return false;
     if(f.q){
       var q=f.q.toLowerCase();
-      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items].join(" ").toLowerCase();
+      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items,r.customerCode,r.customerName].join(" ").toLowerCase();
       if(hay.indexOf(q)===-1) return false;
     }
     return true;
@@ -894,6 +899,8 @@ function renderNewRequest(){
       '</div>'+
       '<div class="field" id="itemsField" hidden style="margin-bottom:14px"></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Agent Name</label><input type="text" value="'+esc(state.currentUser.username)+'" disabled></div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Customer</label><input type="text" id="customerDisplay" placeholder="Filled automatically from the ETM paste" disabled>'+
+        '<input type="hidden" id="customerCodeInput"><input type="hidden" id="customerNameInput"></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea id="noteInput" name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Amount Status — Refund Via *</label><select id="refundMethodSel" name="refundMethod"><option value="">Select…</option>'+
@@ -1109,6 +1116,11 @@ function wireNewRequest(){
     detectFromOrderNo(); checkDuplicateOrderNo();
     if(parsed.mobile) $("#mobileInput").value = parsed.mobile;
     if(parsed.paid===0) $("#refundMethodSel").value = "Cash on Delivery";
+    if(parsed.customerCode){
+      $("#customerCodeInput").value = parsed.customerCode;
+      $("#customerNameInput").value = parsed.customerName;
+      $("#customerDisplay").value = (parsed.customerName?parsed.customerName+" ":"")+"("+parsed.customerCode+")";
+    }
     itemSelections = parsed.items.map(function(it){ return { code:it.code, desc:it.desc, unitPrice:it.unitPrice, orderedQty:it.qty, cancelQty:it.qty, checked:false }; });
     extraCharges = [];
     if(scopeSel.value==="Whole Order" && parsed.total!=null) $("#amountInput").value = parsed.total;
@@ -1159,7 +1171,7 @@ function renderRequests(){
   );
   return '<div class="card">'+
     '<div class="filterbar" style="margin-bottom:16px">'+
-      '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, mobile number, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
+      '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, mobile number, customer, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
       '<div class="field"><label>Status</label><select id="fStatus"><option value="">All</option>'+
         Object.keys(STATUS).filter(function(k){return k!=="pending";}).map(function(k){ return '<option value="'+k+'" '+(state.filters.status===k?"selected":"")+'>'+STATUS[k].label+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Order Type</label><select id="fType"><option value="">All</option><option '+(state.filters.orderType==="Store"?"selected":"")+'>Store</option><option '+(state.filters.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
@@ -1229,6 +1241,7 @@ function renderReqCard(r){
       '<span>Web: '+(r.webOrderNumber?esc(r.webOrderNumber):"N/A")+'</span>'+
       '<span>LN: '+esc(r.lnOrder)+'</span>'+
       '<span>Mobile: '+esc(r.mobile)+'</span>'+
+      (r.customerCode ? '<span>'+esc(r.customerName||"Customer")+' ('+esc(r.customerCode)+')</span>' : "")+
       '<span>'+esc(regionLabel)+'</span>'+
       '<span>'+esc(r.reason)+'</span>'+
       '<span>'+esc(r.source||"—")+'</span>'+
@@ -1241,6 +1254,7 @@ function renderReqCard(r){
         '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber)+' <button type="button" class="linkbtn" data-etm="web" data-etm-value="'+esc(r.webOrderNumber)+'" style="padding:0">↗ ETM</button>':"N/A — Store order")+'</div></div>'+
         '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+' <button type="button" class="linkbtn" data-etm="ln" data-etm-value="'+esc(r.lnOrder)+'" style="padding:0">↗ ETM</button></div></div>'+
         '<div><div class="k">Mobile Number</div><div class="vv">'+esc(r.mobile)+'</div></div>'+
+        '<div><div class="k">Customer</div><div class="vv">'+(r.customerCode?esc(r.customerName||"")+' ('+esc(r.customerCode)+')':"—")+'</div></div>'+
         '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
         '<div><div class="k">Reason</div><div class="vv">'+esc(r.reason)+'</div></div>'+
         '<div><div class="k">Refund Via</div><div class="vv">'+esc(r.refundMethod)+'</div></div>'+
@@ -1266,7 +1280,7 @@ function wireRequests(){
 }
 function exportCsv(){
   var list = filteredRequests();
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status"];
   var head = cols.join(",");
   var rows = list.map(function(r){
     return cols.map(function(c){
@@ -1307,6 +1321,19 @@ function renderDashboard(){
   var byRegion = countBy(list, function(r){ return (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region; });
   var byRegionAmt = {};
   list.forEach(function(r){ var k=(REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label||r.region; byRegionAmt[k]=(byRegionAmt[k]||0)+toAED(r.amount, r.region); });
+  var byCustomer = {};
+  list.forEach(function(r){
+    if(!r.customerCode) return;
+    if(!byCustomer[r.customerCode]) byCustomer[r.customerCode] = { name:r.customerName||r.customerCode, count:0, amount:0 };
+    byCustomer[r.customerCode].count++;
+    byCustomer[r.customerCode].amount += toAED(r.amount, r.region);
+  });
+  var byCustomerCount = {}, byCustomerAmt = {};
+  Object.keys(byCustomer).forEach(function(code){
+    var label = byCustomer[code].name+" ("+code+")";
+    byCustomerCount[label] = byCustomer[code].count;
+    byCustomerAmt[label] = byCustomer[code].amount;
+  });
   var byAgent  = countBy(list, function(r){ return r.agent; });
   var byType = countBy(list, function(r){ return r.orderType; });
   var bySource = countBy(list, function(r){ return r.source || "Unspecified"; });
@@ -1365,7 +1392,11 @@ function renderDashboard(){
     chartCard("By Region — count", hbarList(byRegion,6))+
     chartCard("By Region — value (AED)", hbarList(byRegionAmt,6,function(v){return "AED "+fmtMoney(v);}))+
   '</div>'+
-  '<div class="card"><h2 style="font-size:14.5px">By Agent</h2>'+ hbarList(byAgent,8) +'</div>';
+  '<div class="card"><h2 style="font-size:14.5px">By Agent</h2>'+ hbarList(byAgent,8) +'</div>'+
+  '<div class="chartgrid">'+
+    chartCard("Top Customers — count", hbarList(byCustomerCount,8))+
+    chartCard("Top Customers — value (AED)", hbarList(byCustomerAmt,8,function(v){return "AED "+fmtMoney(v);}))+
+  '</div>';
 }
 function scopeLabel(s){ return s==="today"?"today":(s==="month"?"this month":(s==="custom"?"the selected range":"all time")); }
 function kpi(lbl,val,sub){ return '<div class="kpi"><div class="lbl">'+lbl+'</div><div class="val num">'+val+'</div><div class="sub">'+sub+'</div></div>'; }
