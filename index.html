@@ -252,15 +252,23 @@ function fmtCurrency(amount, region){ return currencyFor(region)+" "+fmtMoney(am
    Some prefixes are shared across countries (OS, SS) — ambiguous prefixes list every
    match instead of guessing, and the agent picks the right one. */
 var PREFIX_MAP = {
+  // "W" + region letter = the LN/internal order number for an Online order
+  // (e.g. WU... for UAE). U/K/Q/O + A or E = that region's own Web Order Number
+  // prefix (e.g. UE.../UA... for UAE) — both forms are Online, just two different
+  // identifiers ETM shows for the very same online transaction.
   WU:[{region:"UAE",branch:"UAE Online",type:"Online"}], BS:[{region:"UAE",branch:"Barsha Store",type:"Store"}],
   TS:[{region:"UAE",branch:"Zahia Store",type:"Store"}], YS:[{region:"UAE",branch:"Marina Store",type:"Store"}],
   CS:[{region:"UAE",branch:"DFC Mall Store",type:"Store"}], IS:[{region:"UAE",branch:"Deerfields Mall Store",type:"Store"}],
   VS:[{region:"UAE",branch:"Festival Plaza Store",type:"Store"}], JS:[{region:"UAE",branch:"FJR Store",type:"Store"}],
   NS:[{region:"UAE",branch:"Al Ain Store",type:"Store"}],
+  UE:[{region:"UAE",branch:"UAE Online (Web Order #)",type:"Online"}], UA:[{region:"UAE",branch:"UAE Online (Web Order #)",type:"Online"}],
   WK:[{region:"KSA",branch:"KSA Online",type:"Online"}], RS:[{region:"KSA",branch:"Riyadh Store",type:"Store"}],
+  KA:[{region:"KSA",branch:"KSA Online (Web Order #)",type:"Online"}], KE:[{region:"KSA",branch:"KSA Online (Web Order #)",type:"Online"}],
   WO:[{region:"OMN",branch:"Oman Online",type:"Online"}], GS:[{region:"OMN",branch:"Ghoubrah Store",type:"Store"}],
+  OA:[{region:"OMN",branch:"Oman Online (Web Order #)",type:"Online"}], OE:[{region:"OMN",branch:"Oman Online (Web Order #)",type:"Online"}],
   WQ:[{region:"QAT",branch:"Qatar Online",type:"Online"}], LS:[{region:"QAT",branch:"Salwa Store",type:"Store"}],
   ES:[{region:"QAT",branch:"QDFC Mall Store",type:"Store"}],
+  QA:[{region:"QAT",branch:"Qatar Online (Web Order #)",type:"Online"}], QE:[{region:"QAT",branch:"Qatar Online (Web Order #)",type:"Online"}],
   SS:[{region:"UAE",branch:"Sharjah Store",type:"Store"},{region:"OMN",branch:"Salalah Store",type:"Store"}],
   OS:[{region:"KSA",branch:"Olaya Store",type:"Store"},{region:"OMN",branch:"Alhail Store",type:"Store"}]
 };
@@ -347,7 +355,14 @@ function refreshAll(silent){
     // they're no longer focused in a field.
     var active = document.activeElement;
     var isEditing = silent && active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
-    if(!isEditing) render();
+    // The New Request form also holds state that lives outside `state` entirely
+    // (parsed ETM data, the item-cancellation picker's selections/quantities) —
+    // a repaint would silently discard that even when no field happens to be
+    // focused, e.g. right after "Auto-fill from paste" or while just reviewing
+    // before submitting. Nothing on that page needs a live repaint anyway (it's
+    // a write-only form), so skip it entirely while it's open.
+    var isFormRoute = silent && state.route==="new";
+    if(!isEditing && !isFormRoute) render();
   }).catch(function(e){ if(!silent) toast("Couldn't refresh: "+e.message); });
 }
 
