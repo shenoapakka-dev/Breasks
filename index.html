@@ -99,6 +99,7 @@ textarea{resize:vertical;min-height:64px}
 .btn.sm{padding:6px 11px;font-size:12.5px}
 .btn.good{background:var(--good-soft);color:var(--good);border-color:transparent}
 .btn.info{background:var(--info-soft);color:var(--info);border-color:transparent}
+.btn.bad{background:var(--bad-soft);color:var(--bad);border-color:transparent}
 .btn[disabled]{opacity:.5;cursor:not-allowed}
 .btnrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 
@@ -313,11 +314,13 @@ var STATUS = {
   sent_online: {label:"Sent to Online Team", cls:"sent"},
   cancelled_refund: {label:"Cancelled with Refund Same Payment Method", cls:"closed"},
   cancelled_credit: {label:"Cancelled With Credit Note", cls:"closed"},
-  cancelled_cdf:    {label:"Cancelled CDF", cls:"closed"}
+  cancelled_cdf:    {label:"Cancelled CDF", cls:"closed"},
+  not_cancelled:    {label:"Not Cancelled (Technical Issue)", cls:"bad"}
 };
 var OPEN_STATUSES = ["new","pending","approved","sent","sent_store_refund","sent_store_credit","sent_online"];
 var CLOSED_STATUSES = ["cancelled_refund","cancelled_credit","cancelled_cdf"];
 var REJECTED_STATUSES = ["rejected"];
+var NOT_CANCELLED_STATUSES = ["not_cancelled"];
 // The one manual choice Operations makes from New is Reject; which "sent"
 // stage to use otherwise is fully automatic from order type + refund method —
 // Cash on Delivery needs no store/online-team step at all (nothing to collect
@@ -1333,13 +1336,13 @@ function lastHistFor(r, statuses){
   return matches.length ? matches[matches.length-1] : null;
 }
 function renderStepper(r){
-  if(r.status==="rejected"){
-    var histR = lastHistFor(r, ["rejected"]);
-    var metaR = histR ? fmtDate(histR.at)+(histR.by?" · "+esc(histR.by):"") : "";
+  if(r.status==="rejected" || r.status==="not_cancelled"){
+    var hist2 = lastHistFor(r, [r.status]);
+    var meta2 = hist2 ? fmtDate(hist2.at)+(hist2.by?" · "+esc(hist2.by):"") : "";
     return '<div class="stepper">'+
       '<div class="step done"><div class="step-dot">✓</div><div class="step-info"><div class="step-label">Submitted</div></div></div>'+
       '<div class="step-line" style="background:var(--bad)"></div>'+
-      '<div class="step current"><div class="step-dot" style="border-color:var(--bad);color:var(--bad)">✕</div><div class="step-info"><div class="step-label" style="color:var(--bad)">Rejected — Returned to Agent</div><div class="step-meta">'+esc(metaR)+'</div></div></div>'+
+      '<div class="step current"><div class="step-dot" style="border-color:var(--bad);color:var(--bad)">✕</div><div class="step-info"><div class="step-label" style="color:var(--bad)">'+esc(STATUS[r.status].label)+'</div><div class="step-meta">'+esc(meta2)+'</div></div></div>'+
     '</div>';
   }
   var curIdx = stageIndexFor(r.status);
@@ -1359,22 +1362,32 @@ function renderReqCard(r){
   var isClosed = CLOSED_STATUSES.indexOf(r.status)>-1;
   var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
   var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>' : '';
+  // Quick one-click outcome for Online orders only, alongside the full stage
+  // dropdown below — skips picking from the list when it's simply done or
+  // blocked by something technical.
+  var quickCancelBtns = (canStage && r.orderType==="Online") ?
+    '<button class="btn good sm" data-act="'+finalStatusFor(r.refundMethod)+'" data-id="'+r.id+'" style="margin-bottom:10px">✅ Cancelled</button>'+
+    '<button class="btn bad sm" data-act="not_cancelled" data-id="'+r.id+'" style="margin-bottom:10px">❌ Not Cancelled</button>' : '';
   var actions = "";
-  if(canStage && OPEN_STATUSES.indexOf(r.status)>-1){
+  if(canStage){
     // Full list of every reachable stage, not just the auto-suggested one —
-    // Operations can pick any of them. The auto-computed "smart" stage (or,
-    // once already sent, the Confirm Cancelled outcome from the Refund Via)
-    // is pre-selected by default, but every option stays pickable.
-    var suggested = (r.status==="new"||r.status==="pending") ? (nextSendStage(r.orderType, r.refundMethod) || finalStatusFor(r.refundMethod)) : finalStatusFor(r.refundMethod);
+    // Operations can pick any of them, and this stays available even after
+    // the request is closed/rejected/not-cancelled so a wrong final stage
+    // can be corrected later, not just the data fields (see Edit below).
     var stageOpts = [];
     if(r.orderType==="Online") stageOpts.push("sent_online");
     else { stageOpts.push("sent_store_refund"); stageOpts.push("sent_store_credit"); }
     stageOpts.push("cancelled_refund","cancelled_credit","cancelled_cdf");
+    if(r.orderType==="Online") stageOpts.push("not_cancelled");
+    var allOptKeys = stageOpts.concat(["rejected"]);
+    var suggested = allOptKeys.indexOf(r.status)!==-1 ? r.status :
+      ((r.status==="new"||r.status==="pending") ? (nextSendStage(r.orderType, r.refundMethod) || finalStatusFor(r.refundMethod)) : finalStatusFor(r.refundMethod));
     var optsHtml = stageOpts.map(function(k){
       var lbl = CLOSED_STATUSES.indexOf(k)>-1 ? "Confirm Cancelled — "+STATUS[k].label : STATUS[k].label;
       return '<option value="'+k+'" '+(k===suggested?"selected":"")+'>'+lbl+'</option>';
-    }).join("")+'<option value="rejected">Reject — Return to the Agent</option>';
-    actions = '<div class="opsbox"><label>Update Stage</label>'+
+    }).join("")+'<option value="rejected" '+(suggested==="rejected"?"selected":"")+'>Reject — Return to the Agent</option>';
+    var already = (CLOSED_STATUSES.indexOf(r.status)>-1 || r.status==="rejected" || r.status==="not_cancelled");
+    actions = '<div class="opsbox"><label>Update Stage'+(already?' <span style="font-weight:400;color:var(--ink-faint)">(currently '+esc(STATUS[r.status].label)+' — change it below if needed)</span>':'')+'</label>'+
       '<div class="btnrow" style="align-items:flex-start;flex-wrap:nowrap">'+
         '<select class="stageSelect" style="flex:1">'+optsHtml+'</select>'+
         '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Save</button>'+
@@ -1383,7 +1396,7 @@ function renderReqCard(r){
       '<textarea class="opsRemark" placeholder="e.g. Confirmed with store, stock held."></textarea>'+
     '</div>';
   }
-  var noteBox = (isClosed || r.status==="rejected") ? '<div class="opsbox"><label>Add a note (visible to everyone, does not change the status)</label>'+
+  var noteBox = (isClosed || r.status==="rejected" || r.status==="not_cancelled") ? '<div class="opsbox"><label>Add a note (visible to everyone, does not change the status)</label>'+
     '<textarea class="closedNote" placeholder="e.g. Customer called again to confirm."></textarea>'+
     '<div class="btnrow" style="margin-top:10px"><button class="btn sm" data-note="'+r.id+'">Add Note</button></div></div>' : '';
   var editBtn = canStage ? '<button type="button" class="btn sm" data-edit-toggle="'+r.id+'" style="margin-bottom:10px">✏️ Edit</button>' : '';
@@ -1441,7 +1454,7 @@ function renderReqCard(r){
       '<div class="note-box">'+esc(r.note)+'</div>'+
       '<div style="color:var(--ink-faint);text-transform:uppercase;font-size:10.5px;font-weight:700;letter-spacing:.03em;margin:12px 0 6px">History</div>'+
       '<div class="history">'+hist+'</div>'+
-      emailBtn+editBtn+
+      emailBtn+quickCancelBtns+editBtn+
       actions+
       editBox+
       noteBox+
@@ -1488,7 +1501,7 @@ function renderDashboard(){
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
   // Rejected requests count toward neither Pending nor Cancelled value — they
   // aren't actively being worked (the agent resubmits separately as a new request).
-  var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1 && REJECTED_STATUSES.indexOf(r.status)===-1; });
+  var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1 && REJECTED_STATUSES.indexOf(r.status)===-1 && NOT_CANCELLED_STATUSES.indexOf(r.status)===-1; });
   var cancelledAmt = closedList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var pendingAmt = openList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var retained = list.filter(function(r){ return r.retain==="Retained"; }).length;
@@ -1567,7 +1580,7 @@ function renderDashboard(){
     chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4","Cash on Delivery - No Refund":"cat-5"}))+
     chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
   '</div>'+
-  chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Rejected — Returned to Agent":"bad","Approved & Sent to the Store":"good","Sent to the Store":"info","Sent To the Store For Cancellation & Refund":"info","Sent To the Store For Cancellation & Keep Credit Note":"cat-6","Sent to Online Team":"cat-2","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"}))+
+  chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Rejected — Returned to Agent":"bad","Not Cancelled (Technical Issue)":"bad","Approved & Sent to the Store":"good","Sent to the Store":"info","Sent To the Store For Cancellation & Refund":"info","Sent To the Store For Cancellation & Keep Credit Note":"cat-6","Sent to Online Team":"cat-2","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"}))+
   '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+'</p>'+ hbarList(byReason,8) +'</div>'+
   '<div class="chartgrid">'+
     chartCard("By Region — count", hbarList(byRegion,6))+
