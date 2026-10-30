@@ -702,12 +702,19 @@ function buildMailto(r, status, remark){
   var requestKind = isWhole ? "Order cancellation request" : "Item cancellation request";
   var subject = requestKind+" "+r.id+" — "+recipient;
 
+  var isFinal = CLOSED_STATUSES.indexOf(status)>-1;
   var lines = [];
   lines.push("Dear "+recipient+",");
   lines.push("");
-  lines.push("Please find below "+(isWhole
-    ? "an order cancellation request."
-    : "an item cancellation request for the order below."));
+  if(isFinal){
+    lines.push(isWhole
+      ? "This order has been cancelled."
+      : "The following item(s) on this order have been cancelled.");
+  } else {
+    lines.push("Please find below "+(isWhole
+      ? "an order cancellation request."
+      : "an item cancellation request for the order below."));
+  }
   lines.push("");
   if(r.retain !== "Retained"){
     if(r.refundMethod === "Same Payment Method"){
@@ -735,9 +742,10 @@ function buildMailto(r, status, remark){
   if(!isWhole && r.items){
     lines.push("ITEM(S) TO CANCEL");
     lines.push("-----------------");
+    var itemNum = 1;
     r.items.split("\n").forEach(function(line){
       line = line.trim();
-      if(line) lines.push("- "+line);
+      if(line) lines.push("Item "+(itemNum++)+": "+line);
     });
     lines.push("");
   }
