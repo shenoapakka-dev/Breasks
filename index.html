@@ -188,9 +188,6 @@ textarea{resize:vertical;min-height:64px}
 .loginbox{width:100%;max-width:380px}
 .loginbox .brand{justify-content:center;font-size:20px;margin-bottom:4px}
 .loginbox .tag{text-align:center;color:var(--ink-muted);font-size:13px;margin-bottom:22px}
-.switcher{display:flex;background:var(--surface-2);border-radius:9px;padding:3px;margin-bottom:16px}
-.switcher button{flex:1;border:none;background:transparent;padding:8px;border-radius:7px;font-weight:700;font-size:13px;color:var(--ink-muted);cursor:pointer}
-.switcher button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 .roletoggle{display:flex;gap:8px}
 .roletoggle label{flex:1;border:1px solid var(--border);border-radius:9px;padding:10px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;color:var(--ink-muted);margin:0}
 .roletoggle input{display:none}
@@ -362,7 +359,6 @@ var state = {
   users:[],
   requests:[],
   route:"new",
-  authMode:"login",
   dashScope:"month",
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:""},
@@ -440,17 +436,16 @@ async function boot(){
 }
 
 /* ---------- auth actions ---------- */
-async function doRegister(username, role, remember){
+// Used only from the Team page by an account-creator — does NOT touch the
+// current session (unlike the old public self-registration flow, this never
+// logs the caller out of their own account into the new one).
+async function doCreateAccount(username, role){
   try{
-    var res = await apiCall("register", { username:username, role:role });
-    state.currentUser = { username: res.username, role: res.role, password: "12345" };
-    if(remember) persistSession();
-    state.route = (res.role==="agent") ? "new" : "requests";
-    toast(res.isFirst ? "Account created — you're the administrator. Default password is 12345." : "Account created. Default password is 12345.");
-    startPolling();
+    var res = await apiCall("register", { caller: callerCred(), username:username, role:role });
+    toast("Account created for "+res.username+". Default password is 12345.");
     await refreshAll(true);
     render();
-  }catch(e){ setAuthErr(authErrText(e.message)); }
+  }catch(e){ toast("Couldn't create account: "+authErrText(e.message)); }
 }
 
 async function doLogin(username, password, silentRestore, remember){
@@ -672,6 +667,13 @@ async function addNote(id, note){
     await refreshAll(true);
   }catch(e){ toast("Couldn't add the note: "+e.message); }
 }
+async function saveEdit(id, patch){
+  try{
+    await apiCall("editRequest", { caller: callerCred(), id:id, patch:patch });
+    toast("Request updated.");
+    await refreshAll(true);
+  }catch(e){ toast("Couldn't save changes: "+e.message); }
+}
 
 /* Builds a pre-filled email (subject + body) for the store and opens it in the
    user's default mail app (Outlook on most corporate Windows machines). */
@@ -715,6 +717,7 @@ function buildMailto(r, status, remark){
   lines.push("Mobile:      "+r.mobile);
   if(r.customerCode) lines.push("Customer:    "+((r.customerName?r.customerName+" ":"")+"("+r.customerCode+")"));
   lines.push("Status:      "+(CLOSED_STATUSES.indexOf(status)>-1 ? STATUS[status].label : (status==="pending"||status==="new") ? "Pending for Review" : "Email sent to "+recipient));
+  if(CLOSED_STATUSES.indexOf(status)>-1 && state.currentUser) lines.push("Cancelled By: "+state.currentUser.username);
   lines.push("Date:        "+fmtDate(r.createdAt));
   lines.push("Amount:      "+fmtMoney(r.amount));
   lines.push("Refund Via:  "+refundLabel(r.refundMethod));
@@ -745,10 +748,15 @@ function openStoreEmail(r, status, remark){
 
 /* ---------- derived data ---------- */
 function canAct(){ return state.currentUser && (state.currentUser.role==="operations" || state.currentUser.role==="admin"); }
-// Stage changes (New -> Sent to Store -> Cancelled...) are restricted to this
-// one account, not the whole Operations/Admin role.
-var STAGE_UPDATERS = ["shenoudah"];
+// Stage changes (New -> Sent to Store -> Cancelled...), editing a request
+// after the fact, and creating new accounts are restricted to this named
+// list, not the whole Operations/Admin role — must match the backend's
+// STAGE_UPDATERS exactly (hiding a button here is UX only; the real
+// enforcement is server-side).
+var STAGE_UPDATERS = ["shenoudah", "mahmouda", "mariam", "shadys"];
 function canUpdateStage(){ return state.currentUser && STAGE_UPDATERS.indexOf(String(state.currentUser.username||"").toLowerCase())!==-1; }
+var ACCOUNT_CREATORS = ["shenoudah"];
+function canCreateAccounts(){ return state.currentUser && ACCOUNT_CREATORS.indexOf(String(state.currentUser.username||"").toLowerCase())!==-1; }
 function isAdmin(){ return state.currentUser && state.currentUser.role==="admin"; }
 function scopedRequests(scope){
   var now=Date.now(), from=0, to=now+1;
@@ -772,6 +780,20 @@ function agentNames(){
   state.requests.forEach(function(r){ if(r.agent && !seen[r.agent]){ seen[r.agent]=true; names.push(r.agent); } });
   return names.sort();
 }
+// Matches a searched mobile number regardless of a leading 0, a leading
+// country code (971/966/974/968, with or without a "00"/"+" prefix) —
+// "0501234567", "501234567" and "971501234567" should all find the same row.
+function digitsOnly(s){ return String(s||"").replace(/\D/g,""); }
+function mobileCore(s){
+  var d = digitsOnly(s).replace(/^00/, "");
+  ["971","966","974","968"].some(function(c){ if(d.indexOf(c)===0){ d = d.slice(c.length); return true; } return false; });
+  return d.replace(/^0+/, "");
+}
+function mobileMatches(stored, query){
+  var sc = mobileCore(stored), qc = mobileCore(query);
+  if(!qc) return false;
+  return sc.indexOf(qc)!==-1 || qc.indexOf(sc)!==-1;
+}
 function filteredRequests(){
   var f = state.filters;
   return state.requests.slice().sort(function(a,b){ return b.createdAt - a.createdAt; }).filter(function(r){
@@ -782,7 +804,9 @@ function filteredRequests(){
     if(f.q){
       var q=f.q.toLowerCase();
       var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items,r.customerCode,r.customerName].join(" ").toLowerCase();
-      if(hay.indexOf(q)===-1) return false;
+      var textMatch = hay.indexOf(q)!==-1;
+      var phoneMatch = /\d/.test(f.q) ? mobileMatches(r.mobile, f.q) : false;
+      if(!textMatch && !phoneMatch) return false;
     }
     return true;
   });
@@ -794,7 +818,6 @@ function initGlobalEvents(){
   document.addEventListener("click", function(e){
     var t;
     if(t = e.target.closest("[data-theme-toggle]")){ toggleTheme(); return; }
-    if(t = e.target.closest(".switcher button")){ state.authMode = t.dataset.mode; render(); return; }
     if(t = e.target.closest(".roletoggle label")){
       $all(".roletoggle label").forEach(function(l){ l.classList.remove("checked"); });
       t.classList.add("checked");
@@ -804,6 +827,11 @@ function initGlobalEvents(){
     if(t = e.target.closest(".scopebar button")){ state.dashScope = t.dataset.scope; render(); return; }
     if(t = e.target.closest("#exportBtn")){ exportCsv(); return; }
     if(t = e.target.closest("[data-reset]")){ adminResetPassword(t.dataset.reset); return; }
+    if(t = e.target.closest("#createAcctBtn")){
+      var un = $("#newAcctUser"), rl = $("#newAcctRole");
+      if(un && un.value.trim()){ doCreateAccount(un.value.trim(), rl ? rl.value : "agent"); un.value=""; }
+      return;
+    }
     if(t = e.target.closest("[data-mailto]")){
       var rec = state.requests.filter(function(x){ return x.id===t.dataset.mailto; })[0];
       if(rec) openStoreEmail(rec, rec.status, "");
@@ -831,6 +859,26 @@ function initGlobalEvents(){
       var noteCard = t.closest(".reqcard");
       var noteEl2 = noteCard && noteCard.querySelector(".closedNote");
       addNote(t.dataset.note, noteEl2 ? noteEl2.value : "");
+      return;
+    }
+    if(t = e.target.closest("[data-edit-toggle]")){
+      var box = document.getElementById("editBox-"+t.dataset.editToggle);
+      if(box) box.hidden = !box.hidden;
+      return;
+    }
+    if(t = e.target.closest("[data-save-edit]")){
+      var editId = t.dataset.saveEdit;
+      var box2 = document.getElementById("editBox-"+editId);
+      if(!box2) return;
+      var patch = {
+        mobile: box2.querySelector(".editMobile").value.trim(),
+        amount: parseFloat(box2.querySelector(".editAmount").value)||0,
+        reason: box2.querySelector(".editReason").value,
+        refundMethod: box2.querySelector(".editRefund").value,
+        retain: box2.querySelector(".editRetain").value,
+        note: box2.querySelector(".editNote").value.trim()
+      };
+      saveEdit(editId, patch);
       return;
     }
     if(t = e.target.closest("[data-toggle]")){
@@ -879,17 +927,14 @@ function renderInner(){
 
 /* ---------- AUTH VIEW ---------- */
 function renderAuth(){
-  var mode = state.authMode;
+  // No public self-registration — new accounts are created from the Team
+  // page by an account-creator (see canCreateAccounts()).
   return '<div class="loginwrap"><div class="loginbox">'+
     '<div style="text-align:center;margin-bottom:6px">'+themeToggleBtn()+'</div>'+
     '<div class="brand"><span class="mark">PH</span><span>Pan Home</span></div>'+
     '<div class="tag">Cancellation Request Desk</div>'+
     '<div class="card">'+
-    '<div class="switcher">'+
-      '<button data-mode="login" class="'+(mode==="login"?"active":"")+'">Log in</button>'+
-      '<button data-mode="register" class="'+(mode==="register"?"active":"")+'">Create account</button>'+
-    '</div>'+
-    (mode==="login" ? renderLoginForm() : renderRegisterForm())+
+    renderLoginForm()+
     '<div class="formerr" id="authErr"></div>'+
     '</div></div></div>';
 }
@@ -900,33 +945,18 @@ function renderLoginForm(){
     '<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-muted);margin-bottom:16px;cursor:pointer"><input type="checkbox" name="remember" style="width:auto"> Remember me on this device</label>'+
     '<button class="btn primary" style="width:100%;justify-content:center" type="submit">Log in</button>'+
     '</form>'+
-    '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">New employees start with the password <b>12345</b>, then change it under Account. Username and password are case-sensitive.</p>';
-}
-function renderRegisterForm(){
-  return '<form id="registerForm">'+
-    '<div class="field" style="margin-bottom:12px"><label>Choose a username</label><input type="text" name="username" required placeholder="e.g. sara.ahmed"></div>'+
-    '<div class="field" style="margin-bottom:6px"><label>You work in</label></div>'+
-    '<div class="roletoggle" style="margin-bottom:16px">'+
-      '<label class="checked" data-role="agent"><input type="radio" name="role" value="agent" checked><span>Agent<br><small style="font-weight:400">Call center / sales</small></span></label>'+
-      '<label data-role="operations"><input type="radio" name="role" value="operations"><span>Operations<br><small style="font-weight:400">Order fulfilment</small></span></label>'+
-    '</div>'+
-    '<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-muted);margin-bottom:16px;cursor:pointer"><input type="checkbox" name="remember" style="width:auto"> Remember me on this device</label>'+
-    '<button class="btn primary" style="width:100%;justify-content:center" type="submit">Create account</button>'+
-    '</form>'+
-    '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">Your password starts as <b>12345</b>. Change it any time from Account.</p>';
+    '<p class="sub" style="margin-top:14px;margin-bottom:0;font-size:12px">New employees start with the password <b>12345</b>, then change it under Account. Username and password are case-sensitive. Need an account? Ask your administrator to create one.</p>';
 }
 function wireAuth(){
   var lf = $("#loginForm");
   if(lf) lf.addEventListener("submit", function(e){ e.preventDefault(); doLogin(lf.username.value, lf.password.value, false, lf.remember.checked); });
-  var rf = $("#registerForm");
-  if(rf) rf.addEventListener("submit", function(e){ e.preventDefault(); var role = rf.querySelector('input[name=role]:checked').value; doRegister(rf.username.value, role, rf.remember.checked); });
 }
 
 /* ---------- SHELL ---------- */
 function renderShell(){
   var u = state.currentUser;
   var tabs = [["new","New Request"],["requests","Requests"],["dashboard","Dashboard"],["account","Account"]];
-  if(isAdmin()) tabs.push(["team","Team"]);
+  if(canCreateAccounts()) tabs.push(["team","Team"]);
   var initials = (u.username||"?").slice(0,2).toUpperCase();
   return '<div class="topbar">'+
     '<div class="brand"><span class="mark">PH</span><span>Cancel Desk</span></div>'+
@@ -950,7 +980,7 @@ function renderRoute(){
   if(state.route==="requests") return renderRequests();
   if(state.route==="dashboard") return renderDashboard();
   if(state.route==="account") return renderAccount();
-  if(state.route==="team" && isAdmin()) return renderTeam();
+  if(state.route==="team" && canCreateAccounts()) return renderTeam();
   return renderNewRequest();
 }
 
@@ -1350,6 +1380,20 @@ function renderReqCard(r){
   var noteBox = (isClosed || r.status==="rejected") ? '<div class="opsbox"><label>Add a note (visible to everyone, does not change the status)</label>'+
     '<textarea class="closedNote" placeholder="e.g. Customer called again to confirm."></textarea>'+
     '<div class="btnrow" style="margin-top:10px"><button class="btn sm" data-note="'+r.id+'">Add Note</button></div></div>' : '';
+  var editBtn = canStage ? '<button type="button" class="btn sm" data-edit-toggle="'+r.id+'" style="margin-bottom:10px">✏️ Edit</button>' : '';
+  var editBox = canStage ? '<div class="opsbox" id="editBox-'+r.id+'" hidden>'+
+    '<div class="grid cols2" style="margin-bottom:10px">'+
+      '<div class="field"><label>Mobile Number</label><input type="tel" class="editMobile" value="'+esc(r.mobile)+'"></div>'+
+      '<div class="field"><label>Amount</label><input type="number" step="0.01" class="editAmount" value="'+esc(r.amount)+'"></div>'+
+    '</div>'+
+    '<div class="grid cols2" style="margin-bottom:10px">'+
+      '<div class="field"><label>Reason</label><select class="editReason">'+REASONS.map(function(x){ return '<option '+(x===r.reason?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Refund Via</label><select class="editRefund">'+REFUND_METHODS.map(function(x){ return '<option value="'+esc(x)+'" '+(x===r.refundMethod?"selected":"")+'>'+esc(refundLabel(x))+'</option>'; }).join("")+'</select></div>'+
+    '</div>'+
+    '<div class="field" style="margin-bottom:10px"><label>Retain / Not Retain</label><select class="editRetain">'+RETAIN_OPTIONS.map(function(x){ return '<option '+(x===r.retain?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+    '<div class="field" style="margin-bottom:10px"><label>Note</label><textarea class="editNote">'+esc(r.note)+'</textarea></div>'+
+    '<div class="btnrow"><button type="button" class="btn good sm" data-save-edit="'+r.id+'">Save Changes</button></div>'+
+  '</div>' : '';
   var hist = (r.history||[]).slice().reverse().map(function(h){
     return '<div class="hrow"><span class="t">'+fmtDate(h.at)+'</span><span>'+esc(STATUS[h.status]?STATUS[h.status].label:h.status)+' · '+esc(h.by)+(h.remark?' — '+esc(h.remark):'')+'</span></div>';
   }).join("");
@@ -1391,8 +1435,9 @@ function renderReqCard(r){
       '<div class="note-box">'+esc(r.note)+'</div>'+
       '<div style="color:var(--ink-faint);text-transform:uppercase;font-size:10.5px;font-weight:700;letter-spacing:.03em;margin:12px 0 6px">History</div>'+
       '<div class="history">'+hist+'</div>'+
-      emailBtn+
+      emailBtn+editBtn+
       actions+
+      editBox+
       noteBox+
     '</div></div>';
 }
@@ -1661,7 +1706,17 @@ function renderTeam(){
         ["agent","operations","admin"].map(function(r){ return '<option value="'+r+'" '+(u.role===r?"selected":"")+'>'+r+'</option>'; }).join("")+
       '</select></td><td class="num">'+cnt+'</td><td><button class="btn sm" data-reset="'+esc(u.username)+'">Reset to 12345</button></td></tr>';
   }).join("");
-  return '<div class="card"><h2>Team</h2><p class="sub">Manage roles and reset passwords.</p>'+
+  return '<div class="card" style="margin-bottom:16px">'+
+    '<h2 style="font-size:15px">Create Account</h2>'+
+    '<p class="sub">There is no public sign-up anymore — new logins are created here only.</p>'+
+    '<div class="grid cols2" style="margin-bottom:10px">'+
+      '<div class="field"><label>Username</label><input type="text" id="newAcctUser" placeholder="e.g. sara.ahmed"></div>'+
+      '<div class="field"><label>Role</label><select id="newAcctRole"><option value="agent">Agent</option><option value="operations">Operations</option><option value="admin">Admin</option></select></div>'+
+    '</div>'+
+    '<button type="button" class="btn primary sm" id="createAcctBtn">+ Create Account</button>'+
+    '<p class="sub" style="margin-top:8px;font-size:12px">New account starts with password <b>12345</b>.</p>'+
+  '</div>'+
+  '<div class="card"><h2>Team</h2><p class="sub">Manage roles and reset passwords.</p>'+
     '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>Username</th><th>Role</th><th>Requests</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
   '</div>';
 }

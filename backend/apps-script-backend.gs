@@ -4,10 +4,14 @@
  * page can call it with no Google/Claude login from the employee's side.
  */
 var APP_KEY = "daQs4oFH4psq9jc9p8d669jFtm1Q7tBq"; // must match API_KEY in the HTML page
-// Stage changes (New -> Sent to Store -> Cancelled...) are restricted to this
-// one account, not the whole Operations/Admin role. Lowercase, compared
-// case-insensitively regardless of the account's actual stored case.
-var STAGE_UPDATERS = ["shenoudah"];
+// Stage changes (New -> Sent to Store -> Cancelled...), sending the store/
+// online-team email, and editing a request after the fact are restricted to
+// this named list, not the whole Operations/Admin role. Lowercase, compared
+// case-insensitively regardless of each account's actual stored case.
+var STAGE_UPDATERS = ["shenoudah", "mahmouda", "mariam", "shadys"];
+// Only this account can create new logins (the public self-registration page
+// is gone; new accounts are created from the Team page instead).
+var ACCOUNT_CREATORS = ["shenoudah"];
 
 // Only actions that actually write to the sheet need the script lock. Locking
 // every call (including "login" and "getAll", which the page polls every 12s
@@ -46,12 +50,13 @@ function doGet(e) {
 
 function route(body) {
   switch (body.action) {
-    case "register": return register(body.username, body.role);
+    case "register": return register(body.caller, body.username, body.role);
     case "login": return login(body.username, body.password);
     case "getAll": requireCaller(body.caller); return getAll();
     case "submitRequest": requireCaller(body.caller); return submitRequest(body.caller.username, body.data);
     case "updateStatus": requireStageUpdater(body.caller); return updateStatus(body.id, body.status, body.caller.username, body.remark);
     case "addNote": requireCaller(body.caller); return updateStatus(body.id, body.status, body.caller.username, body.remark);
+    case "editRequest": requireStageUpdater(body.caller); return editRequest(body.id, body.patch, body.caller.username);
     case "changePassword": return changePassword(body.caller.username, body.caller.password, body.next);
     case "adminSetRole": requireRole(body.caller, ["admin"]); return adminSetRole(body.target, body.role);
     case "adminResetPassword": requireRole(body.caller, ["admin"]); return adminResetPassword(body.target);
@@ -162,13 +167,20 @@ function requireStageUpdater(caller) {
 }
 
 /* ---------- actions ---------- */
-function register(username, role) {
+function register(caller, username, role) {
   username = normalizeUsername(username);
   if (!username || username.length < 2) throw new Error("bad_username");
   if (findUserRow(username)) throw new Error("username_taken");
-  role = (role === "operations") ? "operations" : "agent";
   var sh = usersSheet();
   var isFirst = sh.getLastRow() <= 1;
+  // The very first account ever (bootstrapping the Users sheet) needs no
+  // caller — nobody can be logged in yet. Every account after that can only
+  // be created by someone in ACCOUNT_CREATORS.
+  if (!isFirst) {
+    var u = requireCaller(caller);
+    if (ACCOUNT_CREATORS.indexOf(String(u.username || "").toLowerCase()) === -1) throw new Error("forbidden_account_creation");
+  }
+  role = (role === "operations") ? "operations" : (role === "admin" ? "admin" : "agent");
   var finalRole = isFirst ? "admin" : role;
   sh.appendRow([username, "12345", finalRole, new Date().toISOString()]);
   return { username: username, role: finalRole, isFirst: isFirst };
@@ -228,6 +240,40 @@ function updateStatus(id, status, byUsername, remark) {
       sh.getRange(i + 1, 14).setValue(status);
       sh.getRange(i + 1, 15).setValue(new Date().toISOString());
       sh.getRange(i + 1, 16).setValue(JSON.stringify(history));
+      return { ok: true };
+    }
+  }
+  throw new Error("not_found");
+}
+
+// Fields an Operations stage-updater can correct after the fact (e.g. a typo'd
+// mobile number or amount noticed once a request is already closed). Column
+// numbers are 1-indexed, matching the Requests sheet's actual layout.
+var EDITABLE_FIELDS = {
+  webOrderNumber: 5, lnOrder: 6, mobile: 7, region: 8, amount: 9,
+  reason: 10, note: 11, refundMethod: 12, retain: 13
+};
+function editRequest(id, patch, byUsername) {
+  patch = patch || {};
+  var sh = requestsSheet();
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === id) {
+      var row = i + 1;
+      var changed = [];
+      Object.keys(patch).forEach(function (k) {
+        var col = EDITABLE_FIELDS[k];
+        if (!col) return;
+        var v = (k === "amount") ? (Number(patch[k]) || 0) : patch[k];
+        sh.getRange(row, col).setValue(v);
+        changed.push(k);
+      });
+      if (!changed.length) throw new Error("nothing_to_edit");
+      var history = [];
+      try { history = JSON.parse(data[i][15] || "[]"); } catch (e) {}
+      history.push({ status: data[i][13], by: byUsername, at: new Date().toISOString(), remark: "Edited: " + changed.join(", ") });
+      sh.getRange(row, 15).setValue(new Date().toISOString());
+      sh.getRange(row, 16).setValue(JSON.stringify(history));
       return { ok: true };
     }
   }
