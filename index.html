@@ -1657,21 +1657,26 @@ function buildTrend(list, scope){
 function renderTrendSVG(buckets){
   if(!buckets.length) return '<p class="sub">No data yet.</p>';
   var max = Math.max(1, Math.max.apply(null, buckets.map(function(b){return b.value;})));
-  var W=880, H=200, padL=6, padB=22, padT=10, n=buckets.length;
+  var W=880, H=200, padL=6, padB=22, padT=18, n=buckets.length;
   var bw = (W-padL*2)/n;
   var chartH = H-padB-padT;
   var bars = buckets.map(function(b,i){
-    var x = padL + i*bw, bwReal = Math.max(2, bw-2), cum = 0;
+    var x = padL + i*bw, bwReal = Math.max(2, bw-2), cum = 0, cx = x+1+bwReal/2;
     var segs = REGIONS.map(function(rg){
       var v = b.byRegion[rg.code]||0;
       if(!v) return "";
       var h = Math.max(1, Math.round((v/max) * chartH));
       var y = H-padB-cum-h;
       cum += h;
-      return '<rect x="'+(x+1)+'" y="'+y+'" width="'+bwReal+'" height="'+h+'" fill="var(--'+REGION_COLORS[rg.code]+')"></rect>';
+      // The count only fits inside its own slice when that slice is tall
+      // enough to hold a readable number — otherwise it's still in the
+      // hover tooltip, just not printed on a sliver a few pixels tall.
+      var numTxt = (h>=13) ? '<text x="'+cx+'" y="'+(y+h/2+3)+'" text-anchor="middle" font-size="8.5" font-weight="700" fill="#fff">'+v+'</text>' : "";
+      return '<rect x="'+(x+1)+'" y="'+y+'" width="'+bwReal+'" height="'+h+'" fill="var(--'+REGION_COLORS[rg.code]+')" stroke="var(--surface)" stroke-width="1"></rect>'+numTxt;
     }).join("");
+    var totalTxt = b.value>0 ? '<text x="'+cx+'" y="'+(H-padB-cum-4)+'" text-anchor="middle" font-size="9.5" font-weight="700" fill="var(--ink)">'+b.value+'</text>' : "";
     var detail = REGIONS.map(function(rg){ var v=b.byRegion[rg.code]||0; return v ? (rg.code+" "+v) : null; }).filter(Boolean).join(" · ");
-    return '<g><rect class="trbar" data-v="'+b.value+'" data-detail="'+esc(detail)+'" x="'+(x+1)+'" y="'+padT+'" width="'+bwReal+'" height="'+chartH+'" fill="transparent"></rect>'+segs+'</g>';
+    return '<g><rect class="trbar" data-v="'+b.value+'" data-detail="'+esc(detail)+'" x="'+(x+1)+'" y="'+padT+'" width="'+bwReal+'" height="'+chartH+'" fill="transparent"></rect>'+segs+totalTxt+'</g>';
   }).join("");
   var labels = buckets.map(function(b,i){
     if(!b.label) return "";
