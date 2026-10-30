@@ -9,18 +9,32 @@ var APP_KEY = "daQs4oFH4psq9jc9p8d669jFtm1Q7tBq"; // must match API_KEY in the H
 // case-insensitively regardless of the account's actual stored case.
 var STAGE_UPDATERS = ["shenoudah"];
 
+// Only actions that actually write to the sheet need the script lock. Locking
+// every call (including "login" and "getAll", which the page polls every 12s
+// from every open tab) queued pure reads behind each other and behind writes
+// for no reason, which is what produced "Lock timeout: another process was
+// holding the lock for too long" on login — getAll calls piling up, not an
+// actual write conflict.
+var READ_ONLY_ACTIONS = ["login", "getAll"];
 function doPost(e) {
-  var lock = LockService.getScriptLock();
   var out;
+  var body;
   try {
-    lock.waitLock(10000);
-    var body = JSON.parse(e.postData.contents);
+    body = JSON.parse(e.postData.contents);
     if (body.key !== APP_KEY) throw new Error("bad_key");
+  } catch (err) {
+    out = { ok: false, error: String((err && err.message) || err) };
+    return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+  }
+  var needsLock = READ_ONLY_ACTIONS.indexOf(body.action) === -1;
+  var lock = needsLock ? LockService.getScriptLock() : null;
+  try {
+    if (lock) lock.waitLock(10000);
     out = { ok: true, data: route(body) };
   } catch (err) {
     out = { ok: false, error: String((err && err.message) || err) };
   } finally {
-    try { lock.releaseLock(); } catch (e2) {}
+    if (lock) { try { lock.releaseLock(); } catch (e2) {} }
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }

@@ -365,9 +365,9 @@ var state = {
   authMode:"login",
   dashScope:"month",
   dashRange:{from:"",to:""},
-  dashFilters:{region:"",status:"",orderType:"",source:""},
+  dashFilters:{region:"",status:"",orderType:"",source:"",agent:""},
   openCard:null,
-  filters:{ q:"", status:"", orderType:"", region:"" }
+  filters:{ q:"", status:"", orderType:"", region:"", agent:"" }
 };
 var pollTimer=null;
 function startPolling(){ stopPolling(); pollTimer=setInterval(function(){ refreshAll(true); }, 12000); }
@@ -651,7 +651,10 @@ async function updateStatus(id, status, remark){
   try{
     await apiCall("updateStatus", { caller: callerCred(), id:id, status:status, remark:remark||"" });
     toast("Status updated: "+STATUS[status].label);
-    if(r) openStoreEmail(r, status, remark);
+    // Only the final resolution triggers the store/online-team email automatically —
+    // intermediate "sent" stages and a reject don't email anyone on their own;
+    // use "Email the Store" manually for those if needed.
+    if(r && CLOSED_STATUSES.indexOf(status)>-1) openStoreEmail(r, status, remark);
     await refreshAll(true);
   }catch(e){ toast("Couldn't update status: "+e.message); }
 }
@@ -761,7 +764,13 @@ function scopedRequests(scope){
   if(f.status) list = list.filter(function(r){ return (r.status==="pending"?"new":r.status)===f.status; });
   if(f.orderType) list = list.filter(function(r){ return r.orderType===f.orderType; });
   if(f.source) list = list.filter(function(r){ return r.source===f.source; });
+  if(f.agent) list = list.filter(function(r){ return r.agent===f.agent; });
   return list;
+}
+function agentNames(){
+  var seen = {}, names = [];
+  state.requests.forEach(function(r){ if(r.agent && !seen[r.agent]){ seen[r.agent]=true; names.push(r.agent); } });
+  return names.sort();
 }
 function filteredRequests(){
   var f = state.filters;
@@ -769,6 +778,7 @@ function filteredRequests(){
     if(f.status && (r.status==="pending"?"new":r.status)!==f.status) return false;
     if(f.orderType && r.orderType!==f.orderType) return false;
     if(f.region && r.region!==f.region) return false;
+    if(f.agent && r.agent!==f.agent) return false;
     if(f.q){
       var q=f.q.toLowerCase();
       var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items,r.customerCode,r.customerName].join(" ").toLowerCase();
@@ -1266,6 +1276,8 @@ function renderRequests(){
       '<div class="field"><label>Order Type</label><select id="fType"><option value="">All</option><option '+(state.filters.orderType==="Store"?"selected":"")+'>Store</option><option '+(state.filters.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
       '<div class="field"><label>Region</label><select id="fRegion"><option value="">All</option>'+
         REGIONS.map(function(r){ return '<option value="'+r.code+'" '+(state.filters.region===r.code?"selected":"")+'>'+r.code+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Agent</label><select id="fAgent"><option value="">All</option>'+
+        agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.filters.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
       '<button class="btn sm" id="exportBtn">Export CSV</button>'+
     '</div>'+
     '<div class="reqlist">'+rows+'</div>'+
@@ -1312,30 +1324,28 @@ function renderReqCard(r){
   var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
   var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>' : '';
   var actions = "";
-  if(canStage && (r.status==="pending" || r.status==="new")){
-    var nextStage = nextSendStage(r.orderType, r.refundMethod);
-    var primaryOpt = nextStage
-      ? '<option value="'+nextStage+'">'+STATUS[nextStage].label+'</option>'
-      : '<option value="'+finalStatusFor(r.refundMethod)+'">Confirm Cancelled — '+STATUS[finalStatusFor(r.refundMethod)].label+'</option>';
+  if(canStage && OPEN_STATUSES.indexOf(r.status)>-1){
+    // Full list of every reachable stage, not just the auto-suggested one —
+    // Operations can pick any of them. The auto-computed "smart" stage (or,
+    // once already sent, the Confirm Cancelled outcome from the Refund Via)
+    // is pre-selected by default, but every option stays pickable.
+    var suggested = (r.status==="new"||r.status==="pending") ? (nextSendStage(r.orderType, r.refundMethod) || finalStatusFor(r.refundMethod)) : finalStatusFor(r.refundMethod);
+    var stageOpts = [];
+    if(r.orderType==="Online") stageOpts.push("sent_online");
+    else { stageOpts.push("sent_store_refund"); stageOpts.push("sent_store_credit"); }
+    stageOpts.push("cancelled_refund","cancelled_credit","cancelled_cdf");
+    var optsHtml = stageOpts.map(function(k){
+      var lbl = CLOSED_STATUSES.indexOf(k)>-1 ? "Confirm Cancelled — "+STATUS[k].label : STATUS[k].label;
+      return '<option value="'+k+'" '+(k===suggested?"selected":"")+'>'+lbl+'</option>';
+    }).join("")+'<option value="rejected">Reject — Return to the Agent</option>';
     actions = '<div class="opsbox"><label>Update Stage</label>'+
-      '<select class="stageSelect">'+
-        primaryOpt+
-        '<option value="rejected">Reject — Return to the Agent</option>'+
-      '</select>'+
+      '<div class="btnrow" style="align-items:flex-start;flex-wrap:nowrap">'+
+        '<select class="stageSelect" style="flex:1">'+optsHtml+'</select>'+
+        '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Save</button>'+
+      '</div>'+
       '<label style="margin-top:10px">Operations remark (optional, visible to the agent)</label>'+
       '<textarea class="opsRemark" placeholder="e.g. Confirmed with store, stock held."></textarea>'+
-      '<div class="btnrow" style="margin-top:10px">'+
-        '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Update Stage</button>'+
-      '</div></div>';
-  } else if(canStage && OPEN_STATUSES.indexOf(r.status)>-1 && r.status!=="new" && r.status!=="pending"){
-    var finalKey = finalStatusFor(r.refundMethod);
-    actions = '<div class="opsbox"><label>Update Stage</label>'+
-      '<select class="stageSelect"><option value="'+finalKey+'">Confirm Cancelled — '+STATUS[finalKey].label+'</option></select>'+
-      '<label style="margin-top:10px">Operations remark (optional, visible to the agent)</label>'+
-      '<textarea class="opsRemark" placeholder="e.g. Store confirmed, refund processed."></textarea>'+
-      '<div class="btnrow" style="margin-top:10px">'+
-        '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Update Stage</button>'+
-      '</div></div>';
+    '</div>';
   }
   var noteBox = (isClosed || r.status==="rejected") ? '<div class="opsbox"><label>Add a note (visible to everyone, does not change the status)</label>'+
     '<textarea class="closedNote" placeholder="e.g. Customer called again to confirm."></textarea>'+
@@ -1391,6 +1401,7 @@ function wireRequests(){
   $("#fStatus").addEventListener("change", function(){ state.filters.status=this.value; render(); });
   $("#fType").addEventListener("change", function(){ state.filters.orderType=this.value; render(); });
   $("#fRegion").addEventListener("change", function(){ state.filters.region=this.value; render(); });
+  $("#fAgent").addEventListener("change", function(){ state.filters.agent=this.value; render(); });
 }
 function exportCsv(){
   var list = filteredRequests();
@@ -1482,6 +1493,8 @@ function renderDashboard(){
       '<div class="field" style="width:140px"><label>Order Type</label><select id="dfOrderType"><option value="">All</option><option '+(f.orderType==="Store"?"selected":"")+'>Store</option><option '+(f.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
       '<div class="field" style="width:150px"><label>Source</label><select id="dfSource"><option value="">All</option>'+
         SOURCES.map(function(s){ return '<option value="'+esc(s)+'" '+(f.source===s?"selected":"")+'>'+esc(s)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:150px"><label>Agent</label><select id="dfAgent"><option value="">All</option>'+
+        agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(f.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
     '</div>'+
   '</div>'+
   '<div class="kpis">'+
@@ -1613,11 +1626,12 @@ function wireDashboard(){
   var from = $("#dashFrom"), to = $("#dashTo");
   if(from) from.addEventListener("change", function(){ state.dashRange.from=this.value; render(); });
   if(to) to.addEventListener("change", function(){ state.dashRange.to=this.value; render(); });
-  var dfRegion=$("#dfRegion"), dfStatus=$("#dfStatus"), dfOrderType=$("#dfOrderType"), dfSource=$("#dfSource");
+  var dfRegion=$("#dfRegion"), dfStatus=$("#dfStatus"), dfOrderType=$("#dfOrderType"), dfSource=$("#dfSource"), dfAgent=$("#dfAgent");
   if(dfRegion) dfRegion.addEventListener("change", function(){ state.dashFilters.region=this.value; render(); });
   if(dfStatus) dfStatus.addEventListener("change", function(){ state.dashFilters.status=this.value; render(); });
   if(dfOrderType) dfOrderType.addEventListener("change", function(){ state.dashFilters.orderType=this.value; render(); });
   if(dfSource) dfSource.addEventListener("change", function(){ state.dashFilters.source=this.value; render(); });
+  if(dfAgent) dfAgent.addEventListener("change", function(){ state.dashFilters.agent=this.value; render(); });
 }
 
 /* ---------- ACCOUNT ---------- */
