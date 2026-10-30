@@ -135,6 +135,12 @@ textarea{resize:vertical;min-height:64px}
 .hbartrack{background:var(--surface-2);border-radius:5px;height:10px;overflow:hidden;min-width:0}
 .hbarfill{height:100%;border-radius:5px;background:var(--accent)}
 .hbarrow .v{font-size:12.5px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.regionlegend{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
+.regionlegend-item{display:flex;align-items:center;gap:7px;background:var(--surface-2);border-radius:9px;padding:7px 11px;font-size:12px}
+.regionlegend-item .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.regionlegend-item .rl-name{font-weight:700;color:var(--ink)}
+.regionlegend-item .rl-count{color:var(--ink-muted)}
+.regionlegend-item .rl-amt{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
 
 .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:12.5px}
 .legend .item{display:flex;align-items:center;gap:6px;color:var(--ink-muted)}
@@ -1549,8 +1555,9 @@ function renderDashboard(){
     kpi("Retention Rate", retRate+"%", retained+" of "+total+" retained")+
     kpi("Closed Rate", closedRate+"%", closedList.length+" of "+total+" fully cancelled")+
   '</div>'+
-  '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+'</p>'+
+  '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
+    renderRegionLegend(list)+
   '</div>'+
   '<div class="chartgrid">'+
     chartCard("Order Type", donutSVG(toPairs(byType),{"Store":"cat-1","Online":"cat-2"}))+
@@ -1619,35 +1626,52 @@ function donutSVG(pairs, colorMap){
     '</svg><div class="legend" style="margin-top:0;flex-direction:column;gap:7px">'+legend+'</div></div>';
 }
 
+var REGION_COLORS = {UAE:"cat-1", KSA:"cat-2", QAT:"cat-3", OMN:"cat-4"};
+function emptyRegionMap(){ var o={}; REGIONS.forEach(function(r){ o[r.code]=0; }); return o; }
 function buildTrend(list, scope){
   var buckets = [];
+  function bump(bucket, r){
+    bucket.value++;
+    if(bucket.byRegion[r.region]!=null){ bucket.byRegion[r.region]++; bucket.byRegionAmt[r.region]+=toAED(r.amount, r.region); }
+  }
   if(scope==="today"){
-    for(var h=0;h<24;h++){ buckets.push({label:(h%6===0?pad2(h)+":00":""), key:h, value:0}); }
-    list.forEach(function(r){ var h=new Date(r.createdAt).getHours(); buckets[h].value++; });
+    for(var h=0;h<24;h++){ buckets.push({label:(h%6===0?pad2(h)+":00":""), key:h, value:0, byRegion:emptyRegionMap(), byRegionAmt:emptyRegionMap()}); }
+    list.forEach(function(r){ bump(buckets[new Date(r.createdAt).getHours()], r); });
   } else if(scope==="month"){
     var days = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0).getDate();
-    for(var d=1; d<=days; d++){ buckets.push({label:(d%5===0||d===1?String(d):""), key:d, value:0}); }
-    list.forEach(function(r){ var d=new Date(r.createdAt).getDate(); buckets[d-1].value++; });
+    for(var d=1; d<=days; d++){ buckets.push({label:(d%5===0||d===1?String(d):""), key:d, value:0, byRegion:emptyRegionMap(), byRegionAmt:emptyRegionMap()}); }
+    list.forEach(function(r){ bump(buckets[new Date(r.createdAt).getDate()-1], r); });
   } else {
     var now=new Date();
     var names=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    for(var i=11;i>=0;i--){ var dt=new Date(now.getFullYear(), now.getMonth()-i, 1); buckets.push({label:names[dt.getMonth()], key:dt.getFullYear()+"-"+dt.getMonth(), value:0}); }
+    for(var i=11;i>=0;i--){ var dt=new Date(now.getFullYear(), now.getMonth()-i, 1); buckets.push({label:names[dt.getMonth()], key:dt.getFullYear()+"-"+dt.getMonth(), value:0, byRegion:emptyRegionMap(), byRegionAmt:emptyRegionMap()}); }
     var idx={}; buckets.forEach(function(b,i2){ idx[b.key]=i2; });
-    list.forEach(function(r){ var dt=new Date(r.createdAt); var k=dt.getFullYear()+"-"+dt.getMonth(); if(idx[k]!=null) buckets[idx[k]].value++; });
+    list.forEach(function(r){ var dt=new Date(r.createdAt); var k=dt.getFullYear()+"-"+dt.getMonth(); if(idx[k]!=null) bump(buckets[idx[k]], r); });
   }
   return buckets;
 }
+// Each day/hour/month bar is stacked by region (a real, meaningful color per
+// region, reused from the rest of the dashboard) instead of one flat color —
+// hovering shows the total plus the per-region split; the legend under the
+// chart gives running totals (count + AED value) for the whole period shown.
 function renderTrendSVG(buckets){
   if(!buckets.length) return '<p class="sub">No data yet.</p>';
   var max = Math.max(1, Math.max.apply(null, buckets.map(function(b){return b.value;})));
-  var W=880, H=180, padL=6, padB=22, padT=10, n=buckets.length;
+  var W=880, H=200, padL=6, padB=22, padT=10, n=buckets.length;
   var bw = (W-padL*2)/n;
+  var chartH = H-padB-padT;
   var bars = buckets.map(function(b,i){
-    var h = Math.round((b.value/max) * (H-padB-padT));
-    var x = padL + i*bw;
-    var y = H-padB-h;
-    var bwReal = Math.max(2, bw-2);
-    return '<rect class="trbar" data-v="'+b.value+'" x="'+(x+1)+'" y="'+y+'" width="'+bwReal+'" height="'+Math.max(h,2)+'" rx="2" fill="var(--accent)" opacity="0.9"></rect>';
+    var x = padL + i*bw, bwReal = Math.max(2, bw-2), cum = 0;
+    var segs = REGIONS.map(function(rg){
+      var v = b.byRegion[rg.code]||0;
+      if(!v) return "";
+      var h = Math.max(1, Math.round((v/max) * chartH));
+      var y = H-padB-cum-h;
+      cum += h;
+      return '<rect x="'+(x+1)+'" y="'+y+'" width="'+bwReal+'" height="'+h+'" fill="var(--'+REGION_COLORS[rg.code]+')"></rect>';
+    }).join("");
+    var detail = REGIONS.map(function(rg){ var v=b.byRegion[rg.code]||0; return v ? (rg.code+" "+v) : null; }).filter(Boolean).join(" · ");
+    return '<g><rect class="trbar" data-v="'+b.value+'" data-detail="'+esc(detail)+'" x="'+(x+1)+'" y="'+padT+'" width="'+bwReal+'" height="'+chartH+'" fill="transparent"></rect>'+segs+'</g>';
   }).join("");
   var labels = buckets.map(function(b,i){
     if(!b.label) return "";
@@ -1658,12 +1682,23 @@ function renderTrendSVG(buckets){
     '<line x1="'+padL+'" y1="'+(H-padB)+'" x2="'+(W-padL)+'" y2="'+(H-padB)+'" stroke="var(--border)" stroke-width="1"></line>'+
     bars+labels+'</svg>';
 }
+function renderRegionLegend(list){
+  var stats = {}; REGIONS.forEach(function(rg){ stats[rg.code] = {count:0, amt:0}; });
+  list.forEach(function(r){ if(stats[r.region]){ stats[r.region].count++; stats[r.region].amt += toAED(r.amount, r.region); } });
+  return '<div class="regionlegend">'+REGIONS.map(function(rg){
+    var s = stats[rg.code];
+    return '<div class="regionlegend-item"><span class="dot" style="background:var(--'+REGION_COLORS[rg.code]+')"></span>'+
+      '<span class="rl-name">'+esc(rg.label)+'</span>'+
+      '<span class="rl-count">'+s.count+' req'+(s.count===1?"":"s")+'</span>'+
+      '<span class="rl-amt">AED '+fmtMoney(s.amt)+'</span></div>';
+  }).join("")+'</div>';
+}
 function wireDashboard(){
   var svg = $("#trendSvg");
   if(svg){
     on(svg,"mousemove","rect.trbar",function(e,t){
       var tip=$("#tooltip");
-      tip.textContent = t.dataset.v + " request"+(t.dataset.v==1?"":"s");
+      tip.textContent = t.dataset.v + " request"+(t.dataset.v==1?"":"s")+(t.dataset.detail?" ("+t.dataset.detail+")":"");
       tip.style.left=(e.clientX+10)+"px"; tip.style.top=(e.clientY-28)+"px"; tip.style.opacity=1;
     });
     svg.addEventListener("mouseleave", function(){ $("#tooltip").style.opacity=0; });
