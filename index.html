@@ -108,6 +108,7 @@ textarea{resize:vertical;min-height:64px}
 .badge.approved{background:var(--good-soft);color:var(--good)}
 .badge.sent{background:var(--info-soft);color:var(--info)}
 .badge.closed{background:var(--good-soft);color:var(--good)}
+.badge.bad{background:var(--bad-soft);color:var(--bad)}
 .badge.store{background:var(--surface-2);color:var(--ink-muted)}
 .badge.online{background:var(--accent-soft);color:var(--accent)}
 .badge.retained{background:var(--good-soft);color:var(--good)}
@@ -291,22 +292,39 @@ var REFUND_METHODS = ["Same Payment Method","Credit Note","Cash on Delivery"];
 // means nothing was paid online, so there is nothing to refund.
 function refundLabel(v){ return v==="Cash on Delivery" ? "Cash on Delivery - No Refund" : v; }
 var RETAIN_OPTIONS = ["Retained","Not Retained"];
-/* Workflow: new -> approved/sent (store notified, kept from the original flow as an
-   intermediate stage) -> one of the three closed "Cancelled ..." outcomes, picked
-   automatically from the request's own Refund Via once Operations confirms the
-   store processed it. "pending" is kept as an alias of "new" for requests raised
-   before this status was renamed. */
+/* Workflow: new -> an intermediate "sent" stage (auto-picked from order type +
+   refund method — no manual choice) -> one of the three closed "Cancelled ..."
+   outcomes, picked automatically from the request's own Refund Via once
+   Operations confirms the store/online team processed it. New can also go to
+   "rejected" instead, sending the request back to the agent.
+   "pending" / "approved" / "sent" are kept as aliases/legacy statuses for
+   requests raised before this workflow was split out. */
 var STATUS = {
   new:      {label:"New", cls:"pending"},
   pending:  {label:"New", cls:"pending"},
-  approved: {label:"Approved & Sent to the Store", cls:"approved"},
+  rejected: {label:"Rejected — Returned to Agent", cls:"bad"},
+  approved: {label:"Approved & Sent to the Store", cls:"sent"},
   sent:     {label:"Sent to the Store", cls:"sent"},
+  sent_store_refund: {label:"Sent To the Store For Cancellation & Refund", cls:"sent"},
+  sent_store_credit: {label:"Sent To the Store For Cancellation & Keep Credit Note", cls:"sent"},
+  sent_online: {label:"Sent to Online Team", cls:"sent"},
   cancelled_refund: {label:"Cancelled with Refund Same Payment Method", cls:"closed"},
   cancelled_credit: {label:"Cancelled With Credit Note", cls:"closed"},
   cancelled_cdf:    {label:"Cancelled CDF", cls:"closed"}
 };
-var OPEN_STATUSES = ["new","pending","approved","sent"];
+var OPEN_STATUSES = ["new","pending","approved","sent","sent_store_refund","sent_store_credit","sent_online"];
 var CLOSED_STATUSES = ["cancelled_refund","cancelled_credit","cancelled_cdf"];
+var REJECTED_STATUSES = ["rejected"];
+// The one manual choice Operations makes from New is Reject; which "sent"
+// stage to use otherwise is fully automatic from order type + refund method —
+// Cash on Delivery needs no store/online-team step at all (nothing to collect
+// or refund), so it jumps straight to the Confirm Cancelled action.
+function nextSendStage(orderType, refundMethod){
+  if(refundMethod==="Cash on Delivery") return null;
+  if(orderType==="Online") return "sent_online";
+  if(refundMethod==="Credit Note") return "sent_store_credit";
+  return "sent_store_refund";
+}
 function finalStatusFor(refundMethod){
   if(refundMethod==="Credit Note") return "cancelled_credit";
   if(refundMethod==="Cash on Delivery") return "cancelled_cdf";
@@ -485,11 +503,24 @@ async function adminResetPassword(username){
 function fieldOf(el){ return el ? el.closest(".field") : null; }
 function markField(el, bad){ var f = fieldOf(el); if(f) f.classList.toggle("invalid", !!bad); }
 function clearInvalidFields(){ $all(".field.invalid").forEach(function(f){ f.classList.remove("invalid"); }); }
+// Blocking duplicate: an existing request for the same order that isn't
+// rejected. A rejected one must NOT block resubmission — the agent is meant
+// to raise a fresh request once the issue that caused the rejection is fixed.
 function findDuplicateRequest(lnVal, webVal){
   lnVal = (lnVal||"").toUpperCase(); webVal = (webVal||"").toUpperCase();
   return state.requests.filter(function(r){
     var rl = (r.lnOrder||"").toUpperCase(), rw = (r.webOrderNumber||"").toUpperCase();
-    return (lnVal && rl===lnVal) || (webVal && rw && rw===webVal);
+    var matches = (lnVal && rl===lnVal) || (webVal && rw && rw===webVal);
+    return matches && r.status!=="rejected";
+  })[0];
+}
+// Informational only — surfaced as a dismissible warning, never blocks submit.
+function findRejectedMatch(lnVal, webVal){
+  lnVal = (lnVal||"").toUpperCase(); webVal = (webVal||"").toUpperCase();
+  return state.requests.filter(function(r){
+    var rl = (r.lnOrder||"").toUpperCase(), rw = (r.webOrderNumber||"").toUpperCase();
+    var matches = (lnVal && rl===lnVal) || (webVal && rw && rw===webVal);
+    return matches && r.status==="rejected";
   })[0];
 }
 
@@ -662,7 +693,7 @@ function buildMailto(r, status, remark){
   lines.push("");
   lines.push("Please find below "+(isWhole
     ? "an order cancellation request."
-    : "a cancellation request for the following item(s): "+(r.items||"—")+"."));
+    : "an item cancellation request for the order below."));
   lines.push("");
   if(r.retain !== "Retained"){
     if(r.refundMethod === "Same Payment Method"){
@@ -674,17 +705,28 @@ function buildMailto(r, status, remark){
     }
     lines.push("");
   }
-  lines.push("Order details:");
-  lines.push("Web Order: "+(r.webOrderNumber||"N/A"));
-  lines.push("LN Order: "+r.lnOrder);
-  lines.push("Mobile: "+r.mobile);
-  lines.push("Status: "+(CLOSED_STATUSES.indexOf(status)>-1 ? STATUS[status].label : (status==="pending"||status==="new") ? "Pending for Review" : "Email sent to "+recipient));
-  lines.push("Date: "+fmtDate(r.createdAt));
-  lines.push("Amount: "+fmtMoney(r.amount));
-  lines.push("Refund Via: "+refundLabel(r.refundMethod));
-  lines.push("Agent Name: "+r.agent);
-  if(remark){ lines.push(""); lines.push("Remark: "+remark); }
+  lines.push("ORDER DETAILS");
+  lines.push("-------------");
+  lines.push("Web Order:   "+(r.webOrderNumber||"N/A"));
+  lines.push("LN Order:    "+r.lnOrder);
+  lines.push("Mobile:      "+r.mobile);
+  if(r.customerCode) lines.push("Customer:    "+((r.customerName?r.customerName+" ":"")+"("+r.customerCode+")"));
+  lines.push("Status:      "+(CLOSED_STATUSES.indexOf(status)>-1 ? STATUS[status].label : (status==="pending"||status==="new") ? "Pending for Review" : "Email sent to "+recipient));
+  lines.push("Date:        "+fmtDate(r.createdAt));
+  lines.push("Amount:      "+fmtMoney(r.amount));
+  lines.push("Refund Via:  "+refundLabel(r.refundMethod));
+  lines.push("Agent Name:  "+r.agent);
   lines.push("");
+  if(!isWhole && r.items){
+    lines.push("ITEM(S) TO CANCEL");
+    lines.push("-----------------");
+    r.items.split("\n").forEach(function(line){
+      line = line.trim();
+      if(line) lines.push("- "+line);
+    });
+    lines.push("");
+  }
+  if(remark){ lines.push("Remark: "+remark); lines.push(""); }
   lines.push("Regards,");
   lines.push(state.currentUser.username);
 
@@ -1010,6 +1052,7 @@ function wireNewRequest(){
       hint.textContent = "";
     }
   }
+  var lastRejectedToast = "";
   function checkDuplicateOrderNo(){
     var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
     var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
@@ -1018,9 +1061,17 @@ function wireNewRequest(){
     if(dup){
       hint.textContent = "⚠ Already has a cancellation request: "+dup.id+" ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+")";
       hint.classList.add("warn");
+      return;
+    }
+    hint.classList.remove("warn");
+    var rej = (lnVal||webVal) ? findRejectedMatch(lnVal, webVal) : null;
+    if(rej){
+      hint.textContent = "ℹ A previous request for this order ("+rej.id+") was rejected — you can still submit a new one.";
+      var key = lnVal+"|"+webVal;
+      if(lastRejectedToast!==key){ lastRejectedToast = key; toast("Note: a previous request for this order was rejected ("+rej.id+"). You can still submit."); }
     } else {
       hint.textContent = "";
-      hint.classList.remove("warn");
+      lastRejectedToast = "";
     }
   }
 
@@ -1222,7 +1273,7 @@ function renderRequests(){
 }
 var STAGE_DEFS = [
   { statuses:["new","pending"], label:"Submitted" },
-  { statuses:["approved","sent"], label:"Sent to Store" },
+  { statuses:["approved","sent","sent_store_refund","sent_store_credit","sent_online"], label:"Sent to Store / Online Team" },
   { statuses:["cancelled_refund","cancelled_credit","cancelled_cdf"], label:"Cancelled" }
 ];
 function stageIndexFor(status){
@@ -1234,11 +1285,20 @@ function lastHistFor(r, statuses){
   return matches.length ? matches[matches.length-1] : null;
 }
 function renderStepper(r){
+  if(r.status==="rejected"){
+    var histR = lastHistFor(r, ["rejected"]);
+    var metaR = histR ? fmtDate(histR.at)+(histR.by?" · "+esc(histR.by):"") : "";
+    return '<div class="stepper">'+
+      '<div class="step done"><div class="step-dot">✓</div><div class="step-info"><div class="step-label">Submitted</div></div></div>'+
+      '<div class="step-line" style="background:var(--bad)"></div>'+
+      '<div class="step current"><div class="step-dot" style="border-color:var(--bad);color:var(--bad)">✕</div><div class="step-info"><div class="step-label" style="color:var(--bad)">Rejected — Returned to Agent</div><div class="step-meta">'+esc(metaR)+'</div></div></div>'+
+    '</div>';
+  }
   var curIdx = stageIndexFor(r.status);
   return '<div class="stepper">'+STAGE_DEFS.map(function(s,i){
     var cls = i<curIdx ? "done" : (i===curIdx ? "current" : "upcoming");
     var hist = lastHistFor(r, s.statuses);
-    var label = (i===STAGE_DEFS.length-1 && cls!=="upcoming" && STATUS[r.status]) ? STATUS[r.status].label : s.label;
+    var label = (cls==="current" && STATUS[r.status]) ? STATUS[r.status].label : s.label;
     var meta = hist ? fmtDate(hist.at)+(hist.by?" · "+esc(hist.by):"") : (cls==="upcoming" ? "Pending" : "");
     var connector = i>0 ? '<div class="step-line '+(i<=curIdx?"done":"")+'"></div>' : "";
     return connector+'<div class="step '+cls+'"><div class="step-dot">'+(cls==="done"?"✓":(i+1))+'</div><div class="step-info"><div class="step-label">'+esc(label)+'</div><div class="step-meta">'+esc(meta)+'</div></div></div>';
@@ -1253,17 +1313,21 @@ function renderReqCard(r){
   var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>' : '';
   var actions = "";
   if(canStage && (r.status==="pending" || r.status==="new")){
+    var nextStage = nextSendStage(r.orderType, r.refundMethod);
+    var primaryOpt = nextStage
+      ? '<option value="'+nextStage+'">'+STATUS[nextStage].label+'</option>'
+      : '<option value="'+finalStatusFor(r.refundMethod)+'">Confirm Cancelled — '+STATUS[finalStatusFor(r.refundMethod)].label+'</option>';
     actions = '<div class="opsbox"><label>Update Stage</label>'+
       '<select class="stageSelect">'+
-        '<option value="approved">Approve &amp; Send to Store</option>'+
-        '<option value="sent">Send to the Store</option>'+
+        primaryOpt+
+        '<option value="rejected">Reject — Return to the Agent</option>'+
       '</select>'+
       '<label style="margin-top:10px">Operations remark (optional, visible to the agent)</label>'+
       '<textarea class="opsRemark" placeholder="e.g. Confirmed with store, stock held."></textarea>'+
       '<div class="btnrow" style="margin-top:10px">'+
         '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Update Stage</button>'+
       '</div></div>';
-  } else if(canStage && (r.status==="approved" || r.status==="sent")){
+  } else if(canStage && OPEN_STATUSES.indexOf(r.status)>-1 && r.status!=="new" && r.status!=="pending"){
     var finalKey = finalStatusFor(r.refundMethod);
     actions = '<div class="opsbox"><label>Update Stage</label>'+
       '<select class="stageSelect"><option value="'+finalKey+'">Confirm Cancelled — '+STATUS[finalKey].label+'</option></select>'+
@@ -1273,7 +1337,7 @@ function renderReqCard(r){
         '<button class="btn good sm" data-act="__fromSelect" data-id="'+r.id+'">Update Stage</button>'+
       '</div></div>';
   }
-  var noteBox = isClosed ? '<div class="opsbox"><label>Add a note (visible to everyone, does not change the status)</label>'+
+  var noteBox = (isClosed || r.status==="rejected") ? '<div class="opsbox"><label>Add a note (visible to everyone, does not change the status)</label>'+
     '<textarea class="closedNote" placeholder="e.g. Customer called again to confirm."></textarea>'+
     '<div class="btnrow" style="margin-top:10px"><button class="btn sm" data-note="'+r.id+'">Add Note</button></div></div>' : '';
   var hist = (r.history||[]).slice().reverse().map(function(h){
@@ -1360,7 +1424,9 @@ function renderDashboard(){
   var total = list.length;
 
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
-  var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1; });
+  // Rejected requests count toward neither Pending nor Cancelled value — they
+  // aren't actively being worked (the agent resubmits separately as a new request).
+  var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1 && REJECTED_STATUSES.indexOf(r.status)===-1; });
   var cancelledAmt = closedList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var pendingAmt = openList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var retained = list.filter(function(r){ return r.retain==="Retained"; }).length;
@@ -1436,7 +1502,7 @@ function renderDashboard(){
     chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4","Cash on Delivery - No Refund":"cat-5"}))+
     chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
   '</div>'+
-  chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Approved & Sent to the Store":"good","Sent to the Store":"info","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"}))+
+  chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Rejected — Returned to Agent":"bad","Approved & Sent to the Store":"good","Sent to the Store":"info","Sent To the Store For Cancellation & Refund":"info","Sent To the Store For Cancellation & Keep Credit Note":"cat-6","Sent to Online Team":"cat-2","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"}))+
   '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+'</p>'+ hbarList(byReason,8) +'</div>'+
   '<div class="chartgrid">'+
     chartCard("By Region — count", hbarList(byRegion,6))+
