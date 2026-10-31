@@ -336,6 +336,17 @@ function finalStatusFor(refundMethod){
   if(refundMethod==="Cash on Delivery") return "cancelled_cdf";
   return "cancelled_refund";
 }
+// Reverse of finalStatusFor — the actual Cancelled status is the source of
+// truth for what really happened (it can be corrected later via the stage
+// dropdown), so anything describing the outcome (the email) should read the
+// refund method off the status being emailed, not the possibly-stale stored
+// field, in case a request was closed one way and later corrected to another.
+function refundMethodForStatus(status){
+  if(status==="cancelled_credit") return "Credit Note";
+  if(status==="cancelled_cdf") return "Cash on Delivery";
+  if(status==="cancelled_refund") return "Same Payment Method";
+  return null;
+}
 
 /* ---------- tiny helpers ---------- */
 function esc(s){ s = (s==null?"":String(s)); var d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
@@ -548,6 +559,12 @@ function parseEtmPaste(raw){
   var lnMatch = head.match(/Order\s*\(\s*([A-Za-z0-9]{6,12})\s*\)\s*Details/i);
   var lnOrder = lnMatch ? lnMatch[1].toUpperCase() : "";
 
+  // ETM's own delivery/fulfillment type code (e.g. "DFX" = Delivery and
+  // Fixing, "CDF" = COD Delivery and Fixing) shown right after "Details" —
+  // informational only, kept for reference, not used in any of our logic.
+  var segMatch = head.match(/Order\s*\([^)]*\)\s*Details\s*\|\s*([A-Za-z]{2,5})\b/i);
+  var orderSegment = segMatch ? segMatch[1].toUpperCase() : "";
+
   var webOrderNumber = "";
   head.split("\n").map(function(l){ return l.trim(); }).some(function(t){
     if(/^[A-Za-z0-9]{9}$/.test(t) && t.toUpperCase()!==lnOrder){ webOrderNumber = t.toUpperCase(); return true; }
@@ -575,7 +592,7 @@ function parseEtmPaste(raw){
     });
   }
 
-  return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items, customerCode:customerCode, customerName:customerName };
+  return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items, customerCode:customerCode, customerName:customerName, orderSegment:orderSegment };
 }
 
 async function submitRequest(){
@@ -641,7 +658,8 @@ async function submitRequest(){
     amount: parseFloat(amountEl.value), reason: reasonEl.value, note: noteEl.value.trim(),
     refundMethod: refundEl.value, retain: retainEl.value,
     source: sourceEl.value, scope: scopeEl.value, items: scopeEl.value==="Specific Item(s)" ? itemsEl.value.trim() : "",
-    customerCode: ($("#customerCodeInput")||{}).value || "", customerName: ($("#customerNameInput")||{}).value || ""
+    customerCode: ($("#customerCodeInput")||{}).value || "", customerName: ($("#customerNameInput")||{}).value || "",
+    orderSegment: ($("#orderSegmentInput")||{}).value || ""
   };
   try{
     var res = await apiCall("submitRequest", { caller: callerCred(), data: data });
@@ -703,6 +721,11 @@ function buildEmailParts(r, status, remark){
   var subject = requestKind+" "+r.id+" — "+recipient;
 
   var isFinal = CLOSED_STATUSES.indexOf(status)>-1;
+  // Use the status actually being emailed as the source of truth for the
+  // refund outcome — it may have been corrected via the stage dropdown
+  // after the request was first closed, which wouldn't be reflected by the
+  // stored Refund Via alone.
+  var effectiveRefund = refundMethodForStatus(status) || r.refundMethod;
   var lines = [];
   lines.push("Dear "+recipient+",");
   lines.push("");
@@ -717,11 +740,11 @@ function buildEmailParts(r, status, remark){
   }
   lines.push("");
   if(r.retain !== "Retained"){
-    if(r.refundMethod === "Same Payment Method"){
+    if(effectiveRefund === "Same Payment Method"){
       lines.push("Kindly process the refund to the same payment method used for this order.");
-    } else if(r.refundMethod === "Credit Note"){
+    } else if(effectiveRefund === "Credit Note"){
       lines.push("Kindly process this as a Credit Note.");
-    } else if(r.refundMethod === "Cash on Delivery"){
+    } else if(effectiveRefund === "Cash on Delivery"){
       lines.push("Cash on Delivery - No Refund required (payment was not collected online).");
     }
     lines.push("");
@@ -736,7 +759,7 @@ function buildEmailParts(r, status, remark){
   if(CLOSED_STATUSES.indexOf(status)>-1 && state.currentUser) lines.push("Cancelled By: "+state.currentUser.username);
   lines.push("Date:        "+fmtDate(r.createdAt));
   lines.push("Amount:      "+fmtMoney(r.amount));
-  lines.push("Refund Via:  "+refundLabel(r.refundMethod));
+  lines.push("Refund Via:  "+refundLabel(effectiveRefund));
   lines.push("Agent Name:  "+r.agent);
   lines.push("");
   if(!isWhole && r.items){
@@ -1062,6 +1085,7 @@ function renderNewRequest(){
       '<div class="field" style="margin-bottom:14px"><label>Agent Name</label><input type="text" value="'+esc(state.currentUser.username)+'" disabled></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Customer</label><input type="text" id="customerDisplay" placeholder="Filled automatically from the ETM paste" disabled>'+
         '<input type="hidden" id="customerCodeInput"><input type="hidden" id="customerNameInput"></div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Order Segment</label><input type="text" id="orderSegmentInput" placeholder="ETM delivery/fulfillment code (e.g. DFX, CDF) — filled from the paste" disabled></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea id="noteInput" name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Amount Status — Refund Via *</label><select id="refundMethodSel" name="refundMethod"><option value="">Select…</option>'+
@@ -1105,6 +1129,17 @@ function wireNewRequest(){
   function syncCurrency(){ $("#amountCurrency").textContent = regionSel.value ? currencyFor(regionSel.value) : "select region"; }
   regionSel.addEventListener("change", syncCurrency);
   syncCurrency();
+  // Narrows the Refund Via choices to what's actually possible once ETM says
+  // whether the order was paid: Cash on Delivery for an unpaid order (locked
+  // in, nothing else makes sense), or just the two real refund routes for a
+  // paid one — removes the chance of picking a refund method that
+  // contradicts what was actually collected.
+  function syncRefundOptions(paid){
+    var sel2 = $("#refundMethodSel");
+    var methods = paid===0 ? ["Cash on Delivery"] : (paid>0 ? ["Same Payment Method","Credit Note"] : REFUND_METHODS);
+    sel2.innerHTML = '<option value="">Select…</option>'+methods.map(function(m){ return '<option value="'+esc(m)+'">'+esc(refundLabel(m))+'</option>'; }).join("");
+    if(methods.length===1) sel2.value = methods[0];
+  }
   function detectFromOrderNo(){
     var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
     var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
@@ -1285,12 +1320,13 @@ function wireNewRequest(){
     if(parsed.webOrderNumber){ form.webOrderNumber.value = parsed.webOrderNumber; sel.value = "Online"; syncWebOrder(); }
     detectFromOrderNo(); checkDuplicateOrderNo();
     if(parsed.mobile) $("#mobileInput").value = parsed.mobile;
-    if(parsed.paid===0) $("#refundMethodSel").value = "Cash on Delivery";
+    syncRefundOptions(parsed.paid);
     if(parsed.customerCode){
       $("#customerCodeInput").value = parsed.customerCode;
       $("#customerNameInput").value = parsed.customerName;
       $("#customerDisplay").value = (parsed.customerName?parsed.customerName+" ":"")+"("+parsed.customerCode+")";
     }
+    if(parsed.orderSegment) $("#orderSegmentInput").value = parsed.orderSegment;
     itemSelections = parsed.items.map(function(it){ return { code:it.code, desc:it.desc, unitPrice:it.unitPrice, orderedQty:it.qty, cancelQty:it.qty, checked:false }; });
     extraCharges = [];
     if(scopeSel.value==="Whole Order" && parsed.total!=null) $("#amountInput").value = parsed.total;
@@ -1320,7 +1356,7 @@ function wireNewRequest(){
       etmParsed = null; itemSelections = []; extraCharges = [];
       var pasteBox = $("#etmPasteBox"); if(pasteBox) pasteBox.value = "";
       var hint2 = $("#etmParseHint"); if(hint2) hint2.textContent = "";
-      syncScope();
+      syncScope(); syncRefundOptions(null);
     }
   });
   // Clear the red highlight on a field the moment the agent starts fixing it.
@@ -1474,6 +1510,7 @@ function renderReqCard(r){
         '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+' <button type="button" class="linkbtn" data-etm="ln" data-etm-value="'+esc(r.lnOrder)+'" style="padding:0">↗ ETM</button></div></div>'+
         '<div><div class="k">Mobile Number</div><div class="vv">'+esc(r.mobile)+'</div></div>'+
         '<div><div class="k">Customer</div><div class="vv">'+(r.customerCode?esc(r.customerName||"")+' ('+esc(r.customerCode)+')':"—")+'</div></div>'+
+        '<div><div class="k">Order Segment</div><div class="vv">'+(r.orderSegment?esc(r.orderSegment):"—")+'</div></div>'+
         '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
         '<div><div class="k">Reason</div><div class="vv">'+esc(r.reason)+'</div></div>'+
         '<div><div class="k">Refund Via</div><div class="vv">'+esc(refundLabel(r.refundMethod))+'</div></div>'+

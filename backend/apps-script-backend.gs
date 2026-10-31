@@ -71,7 +71,7 @@ function setup() {
   if (u.getLastRow() === 0) u.appendRow(["username", "password", "role", "createdAt"]);
   var r = ss.getSheetByName("Requests") || ss.insertSheet("Requests");
   if (r.getLastRow() === 0) {
-    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName"]);
+    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment"]);
   }
   var def = ss.getSheetByName("Sheet1");
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 2) ss.deleteSheet(def);
@@ -111,6 +111,16 @@ function migrateAddCustomerFields() {
   toAdd.forEach(function (h, i) { r.getRange(1, lastCol + i + 1).setValue(h); });
 }
 
+/* One-time migration: run this ONCE if your "Requests" tab predates the
+   "orderSegment" field (ETM's own delivery/fulfillment code, e.g. DFX, CDF —
+   informational, parsed from a pasted ETM order). Safe to run more than once. */
+function migrateAddOrderSegment() {
+  var r = requestsSheet();
+  var lastCol = r.getLastColumn();
+  var headers = r.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf("orderSegment") === -1) r.getRange(1, lastCol + 1).setValue("orderSegment");
+}
+
 /* ---------- helpers ---------- */
 // Case-sensitive on purpose: "ShenoudaH" and "shenoudah" are different accounts.
 function normalizeUsername(u) { return String(u || "").trim(); }
@@ -132,7 +142,7 @@ function requestsSheet() {
   var sh = ss.getSheetByName("Requests");
   if (!sh) {
     sh = ss.insertSheet("Requests");
-    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName"]);
+    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment"]);
   }
   return sh;
 }
@@ -224,11 +234,24 @@ function submitRequest(agentUsername, d) {
   sh.appendRow([
     id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.mobile || "", d.region,
     Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "new", now, JSON.stringify(history),
-    d.source || "", d.scope || "", d.items || "", d.customerCode || "", d.customerName || ""
+    d.source || "", d.scope || "", d.items || "", d.customerCode || "", d.customerName || "", d.orderSegment || ""
   ]);
   return { id: id };
 }
 
+// Reverse of the frontend's finalStatusFor() — keeps the stored Refund Via
+// in sync whenever a stage-updater manually (re)sets a request to one of the
+// three Cancelled outcomes via the stage dropdown, not just when it's picked
+// automatically. Without this, re-opening a closed request and changing its
+// final stage leaves the old Refund Via on the row, so the confirmation
+// email (and the request's own display) end up contradicting the status
+// actually shown — e.g. "Cancelled CDF" next to "please refund to the same
+// payment method".
+var REFUND_METHOD_FOR_STATUS = {
+  cancelled_refund: "Same Payment Method",
+  cancelled_credit: "Credit Note",
+  cancelled_cdf: "Cash on Delivery"
+};
 function updateStatus(id, status, byUsername, remark) {
   var sh = requestsSheet();
   var data = sh.getDataRange().getValues();
@@ -240,6 +263,7 @@ function updateStatus(id, status, byUsername, remark) {
       sh.getRange(i + 1, 14).setValue(status);
       sh.getRange(i + 1, 15).setValue(new Date().toISOString());
       sh.getRange(i + 1, 16).setValue(JSON.stringify(history));
+      if (REFUND_METHOD_FOR_STATUS[status]) sh.getRange(i + 1, 12).setValue(REFUND_METHOD_FOR_STATUS[status]);
       return { ok: true };
     }
   }
@@ -298,7 +322,7 @@ function getAll() {
       amount: rd[j][8], reason: rd[j][9], note: rd[j][10], refundMethod: rd[j][11], retain: rd[j][12],
       status: rd[j][13], updatedAt: rd[j][14], history: history,
       source: rd[j][16] || "", scope: rd[j][17] || "", items: rd[j][18] || "",
-      customerCode: rd[j][19] || "", customerName: rd[j][20] || ""
+      customerCode: rd[j][19] || "", customerName: rd[j][20] || "", orderSegment: rd[j][21] || ""
     });
   }
   return { users: users, requests: requests };
