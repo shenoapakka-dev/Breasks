@@ -172,7 +172,9 @@ function requireRole(caller, roles) {
 }
 function requireStageUpdater(caller) {
   var u = requireCaller(caller);
-  if (STAGE_UPDATERS.indexOf(String(u.username || "").toLowerCase()) === -1) throw new Error("forbidden_stage_update");
+  var isNamed = STAGE_UPDATERS.indexOf(String(u.username || "").toLowerCase()) !== -1;
+  var isPrivilegedRole = u.role === "admin" || u.role === "operations";
+  if (!isNamed && !isPrivilegedRole) throw new Error("forbidden_stage_update");
   return u;
 }
 
@@ -250,7 +252,11 @@ function submitRequest(agentUsername, d) {
 var REFUND_METHOD_FOR_STATUS = {
   cancelled_refund: "Same Payment Method",
   cancelled_credit: "Credit Note",
-  cancelled_cdf: "Cash on Delivery"
+  cancelled_cdf: "Cash on Delivery",
+  // Store orders close as soon as they're sent to the store — these two are
+  // now terminal outcomes for Store, same as the three cancelled_* keys.
+  sent_store_refund: "Same Payment Method",
+  sent_store_credit: "Credit Note"
 };
 function updateStatus(id, status, byUsername, remark) {
   var sh = requestsSheet();

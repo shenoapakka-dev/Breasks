@@ -302,11 +302,12 @@ var REFUND_METHODS = ["Same Payment Method","Credit Note","Cash on Delivery"];
 // means nothing was paid online, so there is nothing to refund.
 function refundLabel(v){ return v==="Cash on Delivery" ? "Cash on Delivery - No Refund" : v; }
 var RETAIN_OPTIONS = ["Retained","Not Retained"];
-/* Workflow: new -> an intermediate "sent" stage (auto-picked from order type +
-   refund method — no manual choice) -> one of the three closed "Cancelled ..."
-   outcomes, picked automatically from the request's own Refund Via once
-   Operations confirms the store/online team processed it. New can also go to
-   "rejected" instead, sending the request back to the agent.
+/* Workflow: new -> an intermediate/final "sent" stage (auto-picked from order
+   type + refund method — no manual choice) -> for Online, a separate
+   Cancelled/Not Cancelled confirmation once the online team has actually
+   processed it; for Store, sending it IS the close — there's no further
+   confirmation step, since the store's own processing isn't tracked here.
+   New can also go to "rejected" instead, sending the request back to the agent.
    "pending" / "approved" / "sent" are kept as aliases/legacy statuses for
    requests raised before this workflow was split out. */
 var STATUS = {
@@ -315,22 +316,23 @@ var STATUS = {
   rejected: {label:"Rejected — Returned to Agent", cls:"bad"},
   approved: {label:"Approved & Sent to the Store", cls:"sent"},
   sent:     {label:"Sent to the Store", cls:"sent"},
-  sent_store_refund: {label:"Sent To the Store For Cancellation & Refund", cls:"sent"},
-  sent_store_credit: {label:"Sent To the Store For Cancellation & Keep Credit Note", cls:"sent"},
+  sent_store_refund: {label:"Sent To the Store For Cancellation & Refund", cls:"closed"},
+  sent_store_credit: {label:"Sent To the Store For Cancellation & Keep Credit Note", cls:"closed"},
   sent_online: {label:"Sent to Online Team", cls:"sent"},
   cancelled_refund: {label:"Cancelled with Refund Same Payment Method", cls:"closed"},
   cancelled_credit: {label:"Cancelled With Credit Note", cls:"closed"},
   cancelled_cdf:    {label:"Cancelled CDF", cls:"closed"},
   not_cancelled:    {label:"Not Cancelled (Technical Issue)", cls:"bad"}
 };
-var OPEN_STATUSES = ["new","pending","approved","sent","sent_store_refund","sent_store_credit","sent_online"];
-var CLOSED_STATUSES = ["cancelled_refund","cancelled_credit","cancelled_cdf"];
+var OPEN_STATUSES = ["new","pending","approved","sent","sent_online"];
+var CLOSED_STATUSES = ["cancelled_refund","cancelled_credit","cancelled_cdf","sent_store_refund","sent_store_credit"];
 var REJECTED_STATUSES = ["rejected"];
 var NOT_CANCELLED_STATUSES = ["not_cancelled"];
 // The one manual choice Operations makes from New is Reject; which "sent"
 // stage to use otherwise is fully automatic from order type + refund method —
 // Cash on Delivery needs no store/online-team step at all (nothing to collect
-// or refund), so it jumps straight to the Confirm Cancelled action.
+// or refund), so it jumps straight to the Confirm Cancelled action. For a
+// Store order, the returned stage IS the final one (see CLOSED_STATUSES).
 function nextSendStage(orderType, refundMethod){
   if(refundMethod==="Cash on Delivery") return null;
   if(orderType==="Online") return "sent_online";
@@ -348,9 +350,9 @@ function finalStatusFor(refundMethod){
 // refund method off the status being emailed, not the possibly-stale stored
 // field, in case a request was closed one way and later corrected to another.
 function refundMethodForStatus(status){
-  if(status==="cancelled_credit") return "Credit Note";
+  if(status==="cancelled_credit" || status==="sent_store_credit") return "Credit Note";
   if(status==="cancelled_cdf") return "Cash on Delivery";
-  if(status==="cancelled_refund") return "Same Payment Method";
+  if(status==="cancelled_refund" || status==="sent_store_refund") return "Same Payment Method";
   return null;
 }
 
@@ -825,7 +827,11 @@ function canAct(){ return state.currentUser && (state.currentUser.role==="operat
 // STAGE_UPDATERS exactly (hiding a button here is UX only; the real
 // enforcement is server-side).
 var STAGE_UPDATERS = ["shenoudah", "mahmouda", "mariam", "shadys"];
-function canUpdateStage(){ return state.currentUser && STAGE_UPDATERS.indexOf(String(state.currentUser.username||"").toLowerCase())!==-1; }
+function canUpdateStage(){
+  if(!state.currentUser) return false;
+  if(STAGE_UPDATERS.indexOf(String(state.currentUser.username||"").toLowerCase())!==-1) return true;
+  return state.currentUser.role==="admin" || state.currentUser.role==="operations";
+}
 var ACCOUNT_CREATORS = ["shenoudah"];
 function canCreateAccounts(){ return state.currentUser && ACCOUNT_CREATORS.indexOf(String(state.currentUser.username||"").toLowerCase())!==-1; }
 function isAdmin(){ return state.currentUser && state.currentUser.role==="admin"; }
@@ -1423,8 +1429,11 @@ function renderRequests(){
 }
 var STAGE_DEFS = [
   { statuses:["new","pending"], label:"Submitted" },
-  { statuses:["approved","sent","sent_store_refund","sent_store_credit","sent_online"], label:"Sent to Store / Online Team" },
-  { statuses:["cancelled_refund","cancelled_credit","cancelled_cdf"], label:"Cancelled" }
+  { statuses:["approved","sent","sent_online"], label:"Sent to Store / Online Team" },
+  // sent_store_refund/sent_store_credit are terminal for Store orders (sending
+  // IS closing it), so they belong in the final bucket alongside the three
+  // Cancelled outcomes, not the middle "in progress" one.
+  { statuses:["cancelled_refund","cancelled_credit","cancelled_cdf","sent_store_refund","sent_store_credit"], label:"Cancelled" }
 ];
 function stageIndexFor(status){
   for(var i=0;i<STAGE_DEFS.length;i++){ if(STAGE_DEFS[i].statuses.indexOf(status)!==-1) return i; }
@@ -1477,16 +1486,21 @@ function renderReqCard(r){
     // Operations can pick any of them, and this stays available even after
     // the request is closed/rejected/not-cancelled so a wrong final stage
     // can be corrected later, not just the data fields (see Edit below).
+    // Store: sending it to the store IS closing it — no separate confirm step
+    // (except CDF, which never has a "sent" stage to begin with). Online:
+    // still a real two-step flow, since whether the online team actually
+    // managed it needs a separate confirmation (Cancelled / Not Cancelled).
     var stageOpts = [];
-    if(r.orderType==="Online") stageOpts.push("sent_online");
-    else { stageOpts.push("sent_store_refund"); stageOpts.push("sent_store_credit"); }
-    stageOpts.push("cancelled_refund","cancelled_credit","cancelled_cdf");
-    if(r.orderType==="Online") stageOpts.push("not_cancelled");
+    if(r.orderType==="Online"){
+      stageOpts.push("sent_online","cancelled_refund","cancelled_credit","cancelled_cdf","not_cancelled");
+    } else {
+      stageOpts.push("sent_store_refund","sent_store_credit","cancelled_cdf");
+    }
     var allOptKeys = stageOpts.concat(["rejected"]);
     var suggested = allOptKeys.indexOf(r.status)!==-1 ? r.status :
       ((r.status==="new"||r.status==="pending") ? (nextSendStage(r.orderType, r.refundMethod) || finalStatusFor(r.refundMethod)) : finalStatusFor(r.refundMethod));
     var optsHtml = stageOpts.map(function(k){
-      var lbl = CLOSED_STATUSES.indexOf(k)>-1 ? "Confirm Cancelled — "+STATUS[k].label : STATUS[k].label;
+      var lbl = k.indexOf("cancelled_")===0 ? "Confirm Cancelled — "+STATUS[k].label : STATUS[k].label;
       return '<option value="'+k+'" '+(k===suggested?"selected":"")+'>'+lbl+'</option>';
     }).join("")+'<option value="rejected" '+(suggested==="rejected"?"selected":"")+'>Reject — Return to the Agent</option>';
     var already = (CLOSED_STATUSES.indexOf(r.status)>-1 || r.status==="rejected" || r.status==="not_cancelled");
