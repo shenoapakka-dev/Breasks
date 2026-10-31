@@ -136,6 +136,9 @@ textarea{resize:vertical;min-height:64px}
 .hbartrack{background:var(--surface-2);border-radius:5px;height:10px;overflow:hidden;min-width:0}
 .hbarfill{height:100%;border-radius:5px;background:var(--accent)}
 .hbarrow .v{font-size:12.5px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.hbarrow[data-chart-filter]:hover .lbl{color:var(--ink);text-decoration:underline}
+.hbarrow.active .lbl{color:var(--accent);font-weight:700}
+.hbarrow.active .hbarfill{background:var(--accent)}
 .regionlegend{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
 .regionlegend-item{display:flex;align-items:center;gap:7px;background:var(--surface-2);border-radius:9px;padding:7px 11px;font-size:12px}
 .regionlegend-item .dot{width:9px;height:9px;border-radius:50%;flex:none}
@@ -145,6 +148,9 @@ textarea{resize:vertical;min-height:64px}
 
 .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:12.5px}
 .legend .item{display:flex;align-items:center;gap:6px;color:var(--ink-muted)}
+.legend .item[data-chart-filter]:hover{text-decoration:underline;color:var(--ink)}
+.legend .item.active{color:var(--accent);font-weight:700}
+.legend .item.active .sw{outline:2px solid var(--accent);outline-offset:1px}
 .legend .sw{width:9px;height:9px;border-radius:3px;flex-shrink:0}
 .legend b{color:var(--ink);font-variant-numeric:tabular-nums}
 
@@ -381,7 +387,7 @@ var state = {
   route:"new",
   dashScope:"month",
   dashRange:{from:"",to:""},
-  dashFilters:{region:"",status:"",orderType:"",source:"",agent:""},
+  dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:""},
   openCard:null,
   filters:{ q:"", status:"", orderType:"", region:"", agent:"" }
 };
@@ -617,6 +623,7 @@ async function submitRequest(){
   if(orderType==="Online"){
     if(!webVal) fail(webEl);
     else if(!ORDER_NO_RE.test(webVal)) fail(webEl);
+    else if(!/^[UKQO]/i.test(webVal)) fail(webEl);
   }
   if(!lnVal) fail(lnEl);
   else if(!ORDER_NO_RE.test(lnVal)) fail(lnEl);
@@ -723,7 +730,7 @@ function buildEmailParts(r, status, remark){
   var recipient = recipientFor(r);
   var isWhole = r.scope !== "Specific Item(s)";
   var requestKind = isWhole ? "Order cancellation request" : "Item cancellation request";
-  var subject = requestKind+" "+r.id+" — "+recipient;
+  var subject = requestKind+" "+r.lnOrder+" — "+recipient;
 
   var isFinal = CLOSED_STATUSES.indexOf(status)>-1;
   // Use the status actually being emailed as the source of truth for the
@@ -837,6 +844,7 @@ function scopedRequests(scope){
   if(f.orderType) list = list.filter(function(r){ return r.orderType===f.orderType; });
   if(f.source) list = list.filter(function(r){ return r.source===f.source; });
   if(f.agent) list = list.filter(function(r){ return r.agent===f.agent; });
+  if(f.reason) list = list.filter(function(r){ return r.reason===f.reason; });
   return list;
 }
 function agentNames(){
@@ -889,6 +897,12 @@ function initGlobalEvents(){
     }
     if(t = e.target.closest(".tab")){ state.route = t.dataset.route; render(); return; }
     if(t = e.target.closest(".scopebar button")){ state.dashScope = t.dataset.scope; render(); return; }
+    if(t = e.target.closest("[data-chart-filter]")){
+      var ck = t.dataset.chartFilter, cv = t.dataset.chartValue;
+      state.dashFilters[ck] = (state.dashFilters[ck]===cv) ? "" : cv;
+      render();
+      return;
+    }
     if(t = e.target.closest("#exportBtn")){ exportCsv(); return; }
     if(t = e.target.closest("[data-reset]")){ adminResetPassword(t.dataset.reset); return; }
     if(t = e.target.closest("#createAcctBtn")){
@@ -1663,20 +1677,20 @@ function renderDashboard(){
     renderRegionLegend(list)+
   '</div>'+
   '<div class="chartgrid">'+
-    chartCard("Order Type", donutSVG(toPairs(byType),{"Store":"cat-1","Online":"cat-2"}))+
-    chartCard("Source of Request", donutSVG(toPairs(bySource),{"Call Center":"cat-1","Care Email":"cat-5","Store":"cat-2","Unspecified":"cat-6"}))+
+    chartCard("Order Type", donutSVG(toPairs(byType),{"Store":"cat-1","Online":"cat-2"},"orderType"))+
+    chartCard("Source of Request", donutSVG(toPairs(bySource),{"Call Center":"cat-1","Care Email":"cat-5","Store":"cat-2","Unspecified":"cat-6"},"source"))+
   '</div>'+
   '<div class="chartgrid">'+
     chartCard("Refund Method", donutSVG(toPairs(byRefund),{"Same Payment Method":"cat-3","Credit Note":"cat-4","Cash on Delivery - No Refund":"cat-5"}))+
     chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
   '</div>'+
-  chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Rejected — Returned to Agent":"bad","Not Cancelled (Technical Issue)":"bad","Approved & Sent to the Store":"good","Sent to the Store":"info","Sent To the Store For Cancellation & Refund":"info","Sent To the Store For Cancellation & Keep Credit Note":"cat-6","Sent to Online Team":"cat-2","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"}))+
-  '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+'</p>'+ hbarList(byReason,8) +'</div>'+
+  chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Rejected — Returned to Agent":"bad","Not Cancelled (Technical Issue)":"bad","Approved & Sent to the Store":"good","Sent to the Store":"info","Sent To the Store For Cancellation & Refund":"info","Sent To the Store For Cancellation & Keep Credit Note":"cat-6","Sent to Online Team":"cat-2","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"},"status",statusKeyForLabel))+
+  '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+' — click a reason to filter everything below by it.</p>'+ hbarList(byReason,8,null,"reason") +'</div>'+
   '<div class="chartgrid">'+
-    chartCard("By Region — count", hbarList(byRegion,6))+
-    chartCard("By Region — value (AED)", hbarList(byRegionAmt,6,function(v){return "AED "+fmtMoney(v);}))+
+    chartCard("By Region — count", hbarList(byRegion,6,null,"region",regionCodeForLabel))+
+    chartCard("By Region — value (AED)", hbarList(byRegionAmt,6,function(v){return "AED "+fmtMoney(v);},"region",regionCodeForLabel))+
   '</div>'+
-  '<div class="card"><h2 style="font-size:14.5px">By Agent</h2>'+ hbarList(byAgent,8) +'</div>'+
+  '<div class="card"><h2 style="font-size:14.5px">By Agent</h2>'+ hbarList(byAgent,8,null,"agent") +'</div>'+
   '<div class="chartgrid">'+
     chartCard("Top Customers — count", hbarList(byCustomerCount,8))+
     chartCard("Top Customers — value (AED)", hbarList(byCustomerAmt,8,function(v){return "AED "+fmtMoney(v);}))+
@@ -1686,14 +1700,27 @@ function scopeLabel(s){ return s==="today"?"today":(s==="month"?"this month":(s=
 function kpi(lbl,val,sub){ return '<div class="kpi"><div class="lbl">'+lbl+'</div><div class="val num">'+val+'</div><div class="sub">'+sub+'</div></div>'; }
 function chartCard(title,inner){ return '<div class="card"><h2 style="font-size:14.5px">'+title+'</h2>'+inner+'</div>'; }
 function toPairs(m){ return Object.keys(m).map(function(k){ return {label:k, value:m[k]}; }).sort(function(a,b){return b.value-a.value;}); }
+function regionCodeForLabel(label){ var m = REGIONS.filter(function(r){ return r.label===label; })[0]; return m ? m.code : ""; }
+function statusKeyForLabel(label){
+  var keys = Object.keys(STATUS);
+  for(var i=0;i<keys.length;i++){ if(keys[i]!=="pending" && STATUS[keys[i]].label===label) return keys[i]; }
+  return "";
+}
 
-function hbarList(m, limit, fmt){
+// filterKey/toValue (optional) make each row clickable, applying it as a
+// Dashboard filter (toggles off on a second click) — turns a breakdown
+// into a drill-down instead of a read-only picture.
+function hbarList(m, limit, fmt, filterKey, toValue){
   var pairs = toPairs(m).slice(0, limit||10);
   if(!pairs.length) return '<p class="sub">No data yet.</p>';
   var max = Math.max.apply(null, pairs.map(function(p){return p.value;}));
   return '<div class="hbarlist">'+ pairs.map(function(p){
     var pct = max? Math.max(4, Math.round(p.value/max*100)) : 0;
-    return '<div class="hbarrow"><div class="lbl" title="'+esc(p.label)+'">'+esc(p.label)+'</div>'+
+    var val = toValue ? toValue(p.label) : p.label;
+    var clickable = filterKey && val;
+    var active = clickable && state.dashFilters[filterKey]===val;
+    var attrs = clickable ? ' data-chart-filter="'+esc(filterKey)+'" data-chart-value="'+esc(val)+'" style="cursor:pointer"' : '';
+    return '<div class="hbarrow'+(active?" active":"")+'"'+attrs+'><div class="lbl" title="'+esc(p.label)+'">'+esc(p.label)+'</div>'+
       '<div class="hbartrack"><div class="hbarfill" style="width:'+pct+'%"></div></div>'+
       '<div class="v num">'+(fmt?fmt(p.value):p.value)+'</div></div>';
   }).join("") +'</div>';
@@ -1704,7 +1731,7 @@ function colorForLabel(label, colorMap, fallbackIndex){
   if(colorMap && colorMap[label]) return "var(--"+colorMap[label]+")";
   return "var(--"+FALLBACK_CATS[fallbackIndex%FALLBACK_CATS.length]+")";
 }
-function donutSVG(pairs, colorMap){
+function donutSVG(pairs, colorMap, filterKey, toValue){
   if(!pairs.length) return '<p class="sub">No data yet.</p>';
   var total = pairs.reduce(function(s,p){return s+p.value;},0);
   if(!total) return '<p class="sub">No data yet.</p>';
@@ -1720,7 +1747,11 @@ function donutSVG(pairs, colorMap){
   var legend = pairs.map(function(p,i){
     var color = colorForLabel(p.label, colorMap, i);
     var pct = Math.round(p.value/total*100);
-    return '<div class="item"><span class="sw" style="background:'+color+'"></span>'+esc(p.label)+' <b>'+p.value+'</b> ('+pct+'%)</div>';
+    var val = toValue ? toValue(p.label) : p.label;
+    var clickable = filterKey && val;
+    var active = clickable && state.dashFilters[filterKey]===val;
+    var attrs = clickable ? ' data-chart-filter="'+esc(filterKey)+'" data-chart-value="'+esc(val)+'" style="cursor:pointer"' : '';
+    return '<div class="item'+(active?" active":"")+'"'+attrs+'><span class="sw" style="background:'+color+'"></span>'+esc(p.label)+' <b>'+p.value+'</b> ('+pct+'%)</div>';
   }).join("");
   return '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">'+
     '<svg width="140" height="140" viewBox="0 0 180 180"><g>'+circ+'</g>'+
