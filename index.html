@@ -216,6 +216,8 @@ table.teamtbl th{text-align:left;color:var(--ink-faint);font-size:11px;text-tran
 table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 .tablewrap{overflow-x:auto}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 </head>
 <body>
 <div id="app"></div>
@@ -890,6 +892,43 @@ function filteredRequests(){
   });
 }
 function countBy(list, fn){ var m={}; list.forEach(function(r){ var k=fn(r); m[k]=(m[k]||0)+1; }); return m; }
+function round2(n){ return Math.round((Number(n)||0)*100)/100; }
+// Shared by both the Excel and PowerPoint exports — always the FULL request
+// list (not whatever the dashboard's own scope/filters currently show), since
+// an exported report is meant to stand on its own.
+function computeReportData(){
+  var list = state.requests.slice();
+  var byStatus = countBy(list, function(r){ return STATUS[r.status]?STATUS[r.status].label:r.status; });
+  var byRegion = countBy(list, function(r){ return (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region; });
+  var byRegionAmt = {};
+  list.forEach(function(r){ var k=(REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label||r.region; byRegionAmt[k]=(byRegionAmt[k]||0)+toAED(r.amount,r.region); });
+  var byType = countBy(list, function(r){ return r.orderType; });
+  var byRefund = countBy(list, function(r){ return refundLabel(r.refundMethod); });
+  var bySource = countBy(list, function(r){ return r.source||"Unspecified"; });
+  var byAgent = countBy(list, function(r){ return r.agent; });
+  var byReason = countBy(list, function(r){ return r.reason; });
+  var byDayCounts = {}, byDayAmt = {};
+  list.forEach(function(r){
+    var d = r.createdAt ? new Date(r.createdAt).toISOString().slice(0,10) : "Unknown";
+    byDayCounts[d] = (byDayCounts[d]||0)+1;
+    byDayAmt[d] = (byDayAmt[d]||0)+toAED(r.amount,r.region);
+  });
+  var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
+  var cod = list.filter(function(r){ return r.refundMethod==="Cash on Delivery"; }).length;
+  var kpi = {
+    total: list.length,
+    closed: closedList.length,
+    open: list.length - closedList.length,
+    totalAmt: list.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
+    closedAmt: closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
+    cod: cod,
+    online: list.filter(function(r){ return r.orderType==="Online"; }).length,
+    store: list.filter(function(r){ return r.orderType==="Store"; }).length,
+  };
+  return { list:list, byStatus:byStatus, byRegion:byRegion, byRegionAmt:byRegionAmt, byType:byType,
+    byRefund:byRefund, bySource:bySource, byAgent:byAgent, byReason:byReason,
+    byDayCounts:byDayCounts, byDayAmt:byDayAmt, kpi:kpi };
+}
 
 /* ---------- global event delegation (bound once) ---------- */
 function initGlobalEvents(){
@@ -1610,6 +1649,152 @@ function exportCsv(){
   setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
 }
 
+/* ---------- full report exports (Excel workbook + PowerPoint deck) ----------
+   Both always cover ALL requests, not just whatever the dashboard's own
+   scope/filters currently show — a downloaded report is meant to stand on
+   its own. Built entirely client-side (xlsx.js / pptxgenjs, loaded from a
+   CDN in <head>) since this is a static site with no server to render them. */
+function sortedPairs(m){ return Object.keys(m).sort(function(a,b){ return m[b]-m[a]; }); }
+
+function exportXlsxReport(){
+  if(typeof XLSX==="undefined"){ toast("Excel library didn't load — check your connection and try again."); return; }
+  var d = computeReportData();
+  var wb = XLSX.utils.book_new();
+
+  var summary = [
+    ["Pan Home Cancel Desk — Cancellation Requests Analysis"],
+    ["Generated: "+new Date().toLocaleString()],
+    [],
+    ["Metric","Value"],
+    ["Total Requests", d.kpi.total],
+    ["Closed / Cancelled", d.kpi.closed],
+    ["Still Open", d.kpi.open],
+    ["Total Value (AED)", round2(d.kpi.totalAmt)],
+    ["Closed Value (AED)", round2(d.kpi.closedAmt)],
+    ["Cash on Delivery (COD) Requests", d.kpi.cod],
+    ["Online Requests", d.kpi.online],
+    ["Store Requests", d.kpi.store],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), "Summary");
+
+  var rawCols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","currency",
+    "amount","amountAED","reason","note","refundMethod","retain","status","statusLabel","source","scope","items",
+    "customerCode","customerName","orderSegment"];
+  var rawRows = [rawCols].concat(d.list.map(function(r){
+    return rawCols.map(function(c){
+      if(c==="createdAt") return fmtDate(r.createdAt);
+      if(c==="currency") return currencyFor(r.region);
+      if(c==="amountAED") return round2(toAED(r.amount, r.region));
+      if(c==="statusLabel") return STATUS[r.status] ? STATUS[r.status].label : r.status;
+      return r[c]==null ? "" : r[c];
+    });
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rawRows), "Raw Data");
+
+  function pairsSheet(name, counts, amounts){
+    var header = ["Category","Requests"].concat(amounts ? ["Value (AED)"] : []);
+    var rows = [header].concat(sortedPairs(counts).map(function(k){
+      var row = [k, counts[k]];
+      if(amounts) row.push(round2(amounts[k]||0));
+      return row;
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0,31));
+  }
+  pairsSheet("By Status", d.byStatus);
+  pairsSheet("By Region", d.byRegion, d.byRegionAmt);
+  pairsSheet("By Order Type", d.byType);
+  pairsSheet("By Refund Method (incl COD)", d.byRefund);
+  pairsSheet("By Source", d.bySource);
+  pairsSheet("By Agent", d.byAgent);
+  pairsSheet("Top Reasons", d.byReason);
+  pairsSheet("By Day", d.byDayCounts, d.byDayAmt);
+
+  XLSX.writeFile(wb, "PanHome_Cancellations_Analysis.xlsx");
+  toast("Excel report downloaded — "+d.kpi.total+" requests.");
+}
+
+async function exportPptxReport(){
+  if(typeof PptxGenJS==="undefined"){ toast("PowerPoint library didn't load — check your connection and try again."); return; }
+  var d = computeReportData();
+  var NAVY="1E2761", TEAL="0D9488", CORAL="F96167", BLUE="3B82F6", ROSE="A26769",
+      INK="1C2430", MUTED="5B6B72", CARD="F4F6F8";
+
+  var pres = new PptxGenJS();
+  pres.layout = "LAYOUT_WIDE";
+  pres.title = "Pan Home — Cancellation Requests Analysis";
+
+  function slideHeader(s, title){
+    s.background = { color:"FFFFFF" };
+    s.addText(title, { x:0.6, y:0.4, w:12, h:0.7, fontFace:"Cambria", fontSize:28, bold:true, color:NAVY, isTextBox:true, margin:0 });
+  }
+  function statCard(s, x, y, w, h, label, value, color){
+    s.addShape("roundRect", { x:x, y:y, w:w, h:h, rectRadius:0.08, fill:{color:CARD}, line:{type:"none"} });
+    s.addText(String(value), { x:x+0.15, y:y+0.12, w:w-0.3, h:h-0.55, fontFace:"Cambria", fontSize:26, bold:true, color:color, isTextBox:true, margin:0 });
+    s.addText(label, { x:x+0.15, y:y+h-0.42, w:w-0.3, h:0.35, fontFace:"Calibri", fontSize:10.5, color:MUTED, isTextBox:true, margin:0 });
+  }
+  function barOpts(extra){
+    return Object.assign({
+      showTitle:false, showLegend:false, showValue:true, dataLabelPosition:"outEnd",
+      dataLabelColor:INK, dataLabelFontSize:10, catAxisLabelColor:INK, catAxisLabelFontSize:10,
+      valAxisLabelColor:MUTED, valAxisLabelFontSize:9, valGridLine:{color:"E5E7EB", size:0.75},
+      catGridLine:{style:"none"}, chartColors:[TEAL],
+    }, extra);
+  }
+
+  // Title
+  var s1 = pres.addSlide(); s1.background = { color:NAVY };
+  s1.addText("Pan Home Cancel Desk", { x:0.9, y:2.0, w:11.5, h:0.5, fontFace:"Calibri", fontSize:16, color:"CADCFC", isTextBox:true, margin:0 });
+  s1.addText("Cancellation Requests — Full Analysis", { x:0.9, y:2.5, w:11.5, h:1.1, fontFace:"Cambria", fontSize:34, bold:true, color:"FFFFFF", isTextBox:true, margin:0 });
+  s1.addText(d.kpi.total+" requests  ·  AED "+fmtMoney(d.kpi.totalAmt)+" total value  ·  Generated "+new Date().toLocaleDateString(),
+    { x:0.9, y:3.7, w:11.5, h:0.5, fontFace:"Calibri", fontSize:13, color:"CADCFC", isTextBox:true, margin:0 });
+
+  // Executive summary
+  var s2 = pres.addSlide(); slideHeader(s2, "Executive Summary");
+  var kpis = [["Total Requests", d.kpi.total, NAVY], ["Closed / Cancelled", d.kpi.closed, TEAL],
+    ["Still Open", d.kpi.open, CORAL], ["Online / Store", d.kpi.online+" / "+d.kpi.store, BLUE]];
+  kpis.forEach(function(k,i){ statCard(s2, 0.6+i*3.05, 1.3, 2.85, 1.6, k[0], k[1], k[2]); });
+  s2.addShape("roundRect", { x:0.6, y:3.2, w:12.1, h:1.3, rectRadius:0.08, fill:{color:"FFF4F3"}, line:{type:"none"} });
+  s2.addText([
+    { text:"Cash on Delivery (COD): ", options:{ bold:true, color:CORAL } },
+    { text:d.kpi.cod+" of "+d.kpi.total+" requests. "+(d.kpi.cod===0 ? "No COD cancellations yet — this updates automatically once any exist." : ""), options:{ color:INK } },
+  ], { x:0.9, y:3.4, w:11.5, h:0.9, fontFace:"Calibri", fontSize:13, isTextBox:true, margin:0 });
+
+  // By Status
+  var s3 = pres.addSlide(); slideHeader(s3, "Requests by Status");
+  var stLabels = sortedPairs(d.byStatus), stVals = stLabels.map(function(k){ return d.byStatus[k]; });
+  s3.addChart("bar", [{ name:"Requests", labels:stLabels, values:stVals }], barOpts({ x:0.6, y:1.3, w:12.1, h:5.6, barDir:"bar" }));
+
+  // By Region
+  var s4 = pres.addSlide(); slideHeader(s4, "Requests by Region");
+  var rgLabels = sortedPairs(d.byRegion), rgVals = rgLabels.map(function(k){ return d.byRegion[k]; });
+  s4.addChart("pie", [{ name:"Requests", labels:rgLabels, values:rgVals }], {
+    x:2.9, y:1.3, w:7.5, h:5.6, showLegend:true, legendPos:"b", legendColor:INK, legendFontSize:11,
+    showValue:true, showPercent:true, dataLabelColor:"FFFFFF", dataLabelFontSize:12,
+    chartColors:[NAVY, TEAL, CORAL, BLUE, "97BC62", ROSE],
+  });
+
+  // Refund method incl COD
+  var s5 = pres.addSlide(); slideHeader(s5, "Refund Method (incl. Cash on Delivery)");
+  var rfLabels = ["Same Payment Method", "Credit Note", "Cash on Delivery - No Refund"];
+  var rfVals = rfLabels.map(function(k){ return d.byRefund[k]||0; });
+  s5.addChart("bar", [{ name:"Requests", labels:rfLabels, values:rfVals }], barOpts({ x:1.5, y:1.3, w:10.3, h:5.6, barDir:"col", chartColors:[TEAL, BLUE, CORAL] }));
+
+  // By Agent
+  var s6 = pres.addSlide(); slideHeader(s6, "Requests by Agent");
+  var agLabels = sortedPairs(d.byAgent), agVals = agLabels.map(function(k){ return d.byAgent[k]; });
+  s6.addChart("bar", [{ name:"Requests", labels:agLabels, values:agVals }], barOpts({ x:0.6, y:1.3, w:12.1, h:5.6, barDir:"bar", chartColors:[ROSE] }));
+
+  // Top reasons
+  var s7 = pres.addSlide(); slideHeader(s7, "Top Cancellation Reasons");
+  var rsLabels = sortedPairs(d.byReason).slice(0,8), rsVals = rsLabels.map(function(k){ return d.byReason[k]; });
+  s7.addChart("bar", [{ name:"Requests", labels:rsLabels, values:rsVals }], barOpts({ x:0.6, y:1.3, w:12.1, h:5.6, barDir:"bar", chartColors:[BLUE] }));
+
+  try{
+    await pres.writeFile({ fileName: "PanHome_Cancellations_Analysis.pptx" });
+    toast("PowerPoint report downloaded — "+d.kpi.total+" requests.");
+  }catch(e){ toast("Couldn't build the PowerPoint file: "+e.message); }
+}
+
 /* ---------- DASHBOARD ---------- */
 function renderDashboard(){
   var scope = state.dashScope;
@@ -1657,8 +1842,14 @@ function renderDashboard(){
   '<div class="card" style="padding-bottom:10px">'+
     '<div class="btnrow" style="justify-content:space-between;margin-bottom:12px">'+
       '<div><h2 style="margin:0">Dashboard</h2><p class="sub" style="margin:2px 0 0">Analytics across every submitted request (refreshes automatically).</p></div>'+
-      '<div class="scopebar">'+
-        ["today","month","all","custom"].map(function(s){ return '<button data-scope="'+s+'" class="'+(scope===s?"active":"")+'">'+({today:"Today",month:"This Month",all:"All Time",custom:"Custom"}[s])+'</button>'; }).join("")+
+      '<div class="btnrow" style="gap:16px">'+
+        '<div class="scopebar">'+
+          ["today","month","all","custom"].map(function(s){ return '<button data-scope="'+s+'" class="'+(scope===s?"active":"")+'">'+({today:"Today",month:"This Month",all:"All Time",custom:"Custom"}[s])+'</button>'; }).join("")+
+        '</div>'+
+        '<div class="btnrow" style="gap:8px">'+
+          '<button class="btn sm" id="exportXlsxBtn" title="Every request, every breakdown table — full workbook">📊 Export Excel</button>'+
+          '<button class="btn sm" id="exportPptxBtn" title="The charts on this page, as a slide deck">📑 Export PowerPoint</button>'+
+        '</div>'+
       '</div>'+
     '</div>'+
     (scope==="custom" ? (
@@ -1865,6 +2056,9 @@ function wireDashboard(){
   if(dfOrderType) dfOrderType.addEventListener("change", function(){ state.dashFilters.orderType=this.value; render(); });
   if(dfSource) dfSource.addEventListener("change", function(){ state.dashFilters.source=this.value; render(); });
   if(dfAgent) dfAgent.addEventListener("change", function(){ state.dashFilters.agent=this.value; render(); });
+  var xlsxBtn = $("#exportXlsxBtn"), pptxBtn = $("#exportPptxBtn");
+  if(xlsxBtn) xlsxBtn.addEventListener("click", function(){ exportXlsxReport(); });
+  if(pptxBtn) pptxBtn.addEventListener("click", function(){ exportPptxReport(); });
 }
 
 /* ---------- ACCOUNT ---------- */
