@@ -588,7 +588,12 @@ function parseEtmPaste(raw){
       if(c.length<9) return;
       var code = c[1], desc = c[2], qty = parseFloat(c[4])||0, lineTotal = parseFloat(c[8])||0;
       if(!code || !qty) return;
-      items.push({ code:code, desc:desc, qty:qty, unitPrice: qty ? lineTotal/qty : lineTotal });
+      // Keep every column ETM itself shows (same order: Line/Item/Description/
+      // WH/Ordered/Delivered/BO/Price/Total), not just what we compute from it.
+      items.push({
+        line:c[0], code:code, desc:desc, wh:c[3], qty:qty, delivered:c[5], bo:c[6],
+        price:parseFloat(c[7])||0, lineTotal:lineTotal, unitPrice: qty ? lineTotal/qty : lineTotal
+      });
     });
   }
 
@@ -1229,33 +1234,42 @@ function wireNewRequest(){
       field.innerHTML = '<label>Items to Cancel *</label><textarea id="itemsInput" name="items" placeholder="List the specific item(s) being cancelled… (paste the ETM order details on the right to get a checklist instead)"></textarea>';
       return;
     }
+    // Same column order ETM itself shows (Line/Item/Description/WH/Ordered/
+    // Delivered/BO/Price/Total), plus our own Cancel Qty + computed Amount.
     var rows = itemSelections.map(function(it,i){
       return '<tr data-rowkey="i'+i+'">'+
         '<td><input type="checkbox" data-isel="'+i+'" '+(it.checked?"checked":"")+'></td>'+
-        '<td style="text-align:right">'+esc(it.desc)+' <span style="color:var(--ink-faint)">('+esc(it.code)+')</span></td>'+
+        '<td style="text-align:center">'+esc(it.line||"")+'</td>'+
+        '<td style="text-align:center">'+esc(it.code)+'</td>'+
+        '<td style="text-align:right">'+esc(it.desc)+'</td>'+
+        '<td style="text-align:center">'+esc(it.wh||"")+'</td>'+
         '<td style="text-align:center">'+it.orderedQty+'</td>'+
-        '<td style="text-align:center">'+it.unitPrice.toFixed(2)+'</td>'+
-        '<td style="text-align:center"><input type="number" min="0" max="'+it.orderedQty+'" step="1" data-iqty="'+i+'" value="'+it.cancelQty+'" style="width:56px;padding:4px" '+(it.checked?"":"disabled")+'></td>'+
+        '<td style="text-align:center">'+esc(it.delivered||"0")+'</td>'+
+        '<td style="text-align:center">'+esc(it.bo||"0")+'</td>'+
+        '<td style="text-align:center">'+(it.price||it.unitPrice).toFixed(2)+'</td>'+
+        '<td style="text-align:center">'+(it.lineTotal!=null?it.lineTotal.toFixed(2):(it.orderedQty*it.unitPrice).toFixed(2))+'</td>'+
+        '<td style="text-align:center"><input type="number" min="0" max="'+it.orderedQty+'" step="1" data-iqty="'+i+'" value="'+it.cancelQty+'" style="width:52px;padding:4px" '+(it.checked?"":"disabled")+'></td>'+
         '<td class="itm-line-total" style="text-align:center">'+lineAmount(it).toFixed(2)+'</td>'+
       '</tr>';
     }).join("");
     var extras = extraCharges.map(function(c,i){
       return '<tr data-rowkey="x'+i+'">'+
         '<td></td>'+
-        '<td colspan="3"><input type="text" data-exdesc="'+i+'" value="'+esc(c.desc)+'" placeholder="e.g. Delivery fee" style="width:100%;padding:4px"></td>'+
+        '<td colspan="8"><input type="text" data-exdesc="'+i+'" value="'+esc(c.desc)+'" placeholder="e.g. Delivery fee" style="width:100%;padding:4px"></td>'+
+        '<td></td>'+
+        '<td></td>'+
         '<td style="text-align:center"><input type="number" step="0.01" data-examt="'+i+'" value="'+(c.amount||"")+'" style="width:70px;padding:4px"></td>'+
-        '<td class="itm-line-total" style="text-align:center">'+Number(c.amount||0).toFixed(2)+'</td>'+
       '</tr>';
     }).join("");
     field.innerHTML =
       '<label>Items to Cancel *</label>'+
-      '<table style="width:100%;border-collapse:collapse;font-size:12px">'+
-        '<tr><th></th><th style="text-align:right">Item</th><th>Ordered</th><th>Unit price</th><th>Cancel qty</th><th>Amount</th></tr>'+
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:760px">'+
+        '<tr><th></th><th>Line</th><th>Item</th><th style="text-align:right">Description</th><th>WH</th><th>Ordered</th><th>Delivered</th><th>BO</th><th>Price</th><th>Total</th><th>Cancel qty</th><th>Amount</th></tr>'+
         rows + extras +
-        '<tr><td colspan="6" style="padding-top:6px"><button type="button" class="linkbtn" id="addExtraChargeBtn">+ Add other charge/item</button></td></tr>'+
-        '<tr><td colspan="4"></td><td style="font-weight:700;text-align:center">Total</td><td id="itmGrandTotal" style="font-weight:700;text-align:center">0.00</td></tr>'+
-      '</table>'+
-      '<style>#itemsField th{font-size:10.5px;color:var(--ink-faint);text-align:center;padding:4px}#itemsField td{border-top:1px solid var(--border);padding:5px 4px}</style>'+
+        '<tr><td colspan="12" style="padding-top:6px"><button type="button" class="linkbtn" id="addExtraChargeBtn">+ Add other charge/item</button></td></tr>'+
+        '<tr><td colspan="10"></td><td style="font-weight:700;text-align:center">Total</td><td id="itmGrandTotal" style="font-weight:700;text-align:center">0.00</td></tr>'+
+      '</table></div>'+
+      '<style>#itemsField th{font-size:10px;color:var(--ink-faint);text-align:center;padding:4px;white-space:nowrap}#itemsField td{border-top:1px solid var(--border);padding:5px 4px;white-space:nowrap}</style>'+
       '<textarea id="itemsInput" name="items" hidden></textarea>';
     syncItemsTotals();
   }
@@ -1327,7 +1341,10 @@ function wireNewRequest(){
       $("#customerDisplay").value = (parsed.customerName?parsed.customerName+" ":"")+"("+parsed.customerCode+")";
     }
     if(parsed.orderSegment) $("#orderSegmentInput").value = parsed.orderSegment;
-    itemSelections = parsed.items.map(function(it){ return { code:it.code, desc:it.desc, unitPrice:it.unitPrice, orderedQty:it.qty, cancelQty:it.qty, checked:false }; });
+    itemSelections = parsed.items.map(function(it){ return {
+      line:it.line, code:it.code, desc:it.desc, wh:it.wh, delivered:it.delivered, bo:it.bo, price:it.price, lineTotal:it.lineTotal,
+      unitPrice:it.unitPrice, orderedQty:it.qty, cancelQty:it.qty, checked:false
+    }; });
     extraCharges = [];
     if(scopeSel.value==="Whole Order" && parsed.total!=null) $("#amountInput").value = parsed.total;
     if(scopeSel.value==="Specific Item(s)") buildItemPicker();
