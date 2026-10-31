@@ -696,7 +696,7 @@ function recipientFor(r){
   if(m && m.length) return m[0].branch;
   return "Store";
 }
-function buildMailto(r, status, remark){
+function buildEmailParts(r, status, remark){
   var recipient = recipientFor(r);
   var isWhole = r.scope !== "Specific Item(s)";
   var requestKind = isWhole ? "Order cancellation request" : "Item cancellation request";
@@ -753,7 +753,11 @@ function buildMailto(r, status, remark){
   lines.push("Regards,");
   lines.push(state.currentUser.username);
 
-  return "mailto:?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(lines.join("\n"));
+  return { to: recipient, subject: subject, body: lines.join("\n") };
+}
+function buildMailto(r, status, remark){
+  var p = buildEmailParts(r, status, remark);
+  return "mailto:?subject="+encodeURIComponent(p.subject)+"&body="+encodeURIComponent(p.body);
 }
 function openStoreEmail(r, status, remark){
   try{
@@ -761,6 +765,21 @@ function openStoreEmail(r, status, remark){
     a.href = buildMailto(r, status, remark);
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }catch(e){}
+}
+// mailto: only works when the PC has a desktop mail app registered as the
+// default handler — on a machine where it isn't, clicking "Email the Store"
+// silently falls back to some generic browser page and nobody ever sees the
+// drafted email at all. This copies the same To/Subject/Body as plain text
+// so it can be pasted into Outlook Web, Gmail, or anything else by hand.
+async function copyEmailText(r, status, remark){
+  var p = buildEmailParts(r, status, remark);
+  var text = "To: "+p.to+"\nSubject: "+p.subject+"\n\n"+p.body;
+  try{
+    await navigator.clipboard.writeText(text);
+    toast("Email copied — paste it into Outlook/webmail.");
+  }catch(e){
+    toast("Couldn't copy automatically — select the email text and copy it manually.");
+  }
 }
 
 /* ---------- derived data ---------- */
@@ -852,6 +871,11 @@ function initGlobalEvents(){
     if(t = e.target.closest("[data-mailto]")){
       var rec = state.requests.filter(function(x){ return x.id===t.dataset.mailto; })[0];
       if(rec) openStoreEmail(rec, rec.status, "");
+      return;
+    }
+    if(t = e.target.closest("[data-copy-email]")){
+      var rec2 = state.requests.filter(function(x){ return x.id===t.dataset.copyEmail; })[0];
+      if(rec2) copyEmailText(rec2, rec2.status, "");
       return;
     }
     if(t = e.target.closest("[data-etm]")){
@@ -1369,7 +1393,8 @@ function renderReqCard(r){
   var canStage = canUpdateStage();
   var isClosed = CLOSED_STATUSES.indexOf(r.status)>-1;
   var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
-  var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>' : '';
+  var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>'+
+    '<button type="button" class="btn sm" data-copy-email="'+r.id+'" style="margin-bottom:10px">📋 Copy Email</button>' : '';
   // Quick one-click outcome for Online orders only, alongside the full stage
   // dropdown below — skips picking from the list when it's simply done or
   // blocked by something technical.
