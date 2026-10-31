@@ -215,6 +215,27 @@ table.teamtbl{width:100%;border-collapse:collapse;font-size:13px}
 table.teamtbl th{text-align:left;color:var(--ink-faint);font-size:11px;text-transform:uppercase;letter-spacing:.03em;padding:8px 10px;border-bottom:1px solid var(--border)}
 table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 .tablewrap{overflow-x:auto}
+
+/* ---- Follow-up & Reminders ---- */
+.kpi.fu-kpi{cursor:pointer;transition:box-shadow .1s}
+.kpi.fu-kpi.active{box-shadow:0 0 0 2px var(--accent) inset, var(--shadow)}
+.fu-scopebar{display:flex;gap:6px;background:var(--surface-2);padding:3px;border-radius:9px;width:max-content;flex-wrap:wrap}
+.fu-scopebar button{border:none;background:transparent;padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:700;color:var(--ink-muted);cursor:pointer}
+.fu-scopebar button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.fu-popup{position:fixed;top:max(16px, env(safe-area-inset-top,0px));right:16px;max-width:320px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;z-index:150}
+.fu-popup h3{margin:0 0 4px;font-size:14px}
+.fu-popup .sub{margin:0 0 10px}
+.fu-popup .btnrow{gap:6px}
+.fu-chat-btn{position:fixed;bottom:max(18px, env(safe-area-inset-bottom,0px));right:18px;z-index:140;border-radius:999px;padding:10px 16px;box-shadow:var(--shadow)}
+.fu-chat-badge{position:absolute;top:-4px;right:-4px;background:var(--bad);color:#fff;border-radius:999px;font-size:10px;font-weight:800;padding:1px 5px;min-width:16px;text-align:center}
+.fu-chat-panel{position:fixed;bottom:70px;right:18px;width:300px;max-height:420px;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);z-index:140;overflow:hidden}
+.fu-chat-panel .hd{padding:10px 12px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.fu-chat-panel .msgs{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+.fu-chat-panel .msg{max-width:85%;padding:7px 10px;border-radius:10px;background:var(--surface-2)}
+.fu-chat-panel .msg.me{align-self:flex-end;background:var(--accent-soft);color:var(--accent)}
+.fu-chat-panel .ft{display:flex;gap:6px;padding:10px;border-top:1px solid var(--border)}
+.fu-chat-panel .ft input{flex:1}
+@media (max-width:480px){.fu-chat-panel{width:calc(100vw - 32px);right:16px}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
@@ -223,6 +244,8 @@ table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical
 <div id="app"></div>
 <div class="tooltip" id="tooltip"></div>
 <div class="toast" id="toast"></div>
+<div id="fuPopupRoot"></div>
+<div id="fuChatRoot"></div>
 
 <script>
 (function(){
@@ -393,8 +416,10 @@ var state = {
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:""},
   openCard:null,
-  filters:{ q:"", status:"", orderType:"", region:"", agent:"" }
+  filters:{ q:"", status:"", orderType:"", region:"", agent:"" },
+  fu: null // set below once fuInitialState() is defined (function declarations are hoisted, so this is fine)
 };
+state.fu = fuInitialState();
 var pollTimer=null;
 function startPolling(){ stopPolling(); pollTimer=setInterval(function(){ refreshAll(true); }, 12000); }
 function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
@@ -422,6 +447,16 @@ function refreshAll(silent){
     // a write-only form), so skip it entirely while it's open.
     var isFormRoute = silent && state.route==="new";
     if(!isEditing && !isFormRoute) render();
+    // Follow-up reminders/chat live in their own overlay roots outside #app
+    // (see renderOverlays()), so polling them can never wipe an in-progress
+    // form the way a full render() of #app could — safe to do unconditionally
+    // on every poll tick, regardless of which tab is open or what's mid-edit.
+    fuPollReminders();
+    fuPollChatUnread();
+    // The Follow-up list/KPI data itself DOES repaint #app, so — exactly like
+    // the New Request form above — skip it while the New Follow-up form or an
+    // Open Case detail view (both hold DOM-only drafts) is on screen.
+    if(state.route==="followup" && state.fu.view==="list") fuFetchDataDebounced();
   }).catch(function(e){ if(!silent) toast("Couldn't refresh: "+e.message); });
 }
 
@@ -489,6 +524,8 @@ async function doLogin(username, password, silentRestore, remember){
     startPolling();
     await refreshAll(true);
     render();
+    fuPollReminders();
+    fuPollChatUnread();
   }catch(e){
     if(!silentRestore) setAuthErr(authErrText(e.message));
     else { try{ localStorage.removeItem("ph_cancel_session"); }catch(e2){} }
@@ -505,7 +542,7 @@ function authErrText(code){
 }
 function setAuthErr(msg){ var e=$("#authErr"); if(e) e.textContent = msg; }
 function persistSession(){ try{ localStorage.setItem("ph_cancel_session", JSON.stringify({username:state.currentUser.username, password:state.currentUser.password})); }catch(e){} }
-function doLogout(){ stopPolling(); state.currentUser=null; try{ localStorage.removeItem("ph_cancel_session"); }catch(e){} state.route="new"; render(); }
+function doLogout(){ stopPolling(); state.currentUser=null; state.fu=fuInitialState(); try{ localStorage.removeItem("ph_cancel_session"); }catch(e){} state.route="new"; render(); }
 
 async function changePassword(current,next){
   try{
@@ -940,8 +977,34 @@ function initGlobalEvents(){
       t.classList.add("checked");
       return;
     }
-    if(t = e.target.closest(".tab")){ state.route = t.dataset.route; render(); return; }
+    if(t = e.target.closest(".tab")){
+      state.route = t.dataset.route;
+      if(state.route==="followup" && state.fu.view!=="list"){ state.fu.view="list"; state.fu.caseDetail=null; }
+      render();
+      return;
+    }
     if(t = e.target.closest(".scopebar button")){ state.dashScope = t.dataset.scope; render(); return; }
+    if(t = e.target.closest("[data-fu-preset]")){ state.fu.preset = t.dataset.fuPreset; state.fu.page=1; fuFetchDataDebounced(); render(); return; }
+    if(t = e.target.closest("[data-fu-kpi]")){
+      var fk = t.dataset.fuKpi;
+      state.fu.kpiFilter = (state.fu.kpiFilter===fk) ? "" : fk;
+      state.fu.page = 1;
+      render();
+      return;
+    }
+    if(t = e.target.closest("[data-fu-kpi-clear]")){ state.fu.kpiFilter=""; state.fu.page=1; render(); return; }
+    if(t = e.target.closest("[data-fu-page]")){ var fp=parseInt(t.dataset.fuPage,10); if(!isNaN(fp)) state.fu.page=fp; render(); return; }
+    if(t = e.target.closest("[data-fu-open]")){ state.fu.view="open"; state.fu.openCaseId=t.dataset.fuOpen; fuOpenCaseLoad(t.dataset.fuOpen); render(); return; }
+    if(t = e.target.closest("[data-fu-agent-drill]")){ state.fu.agentFilter=t.dataset.fuAgentDrill; state.fu.kpiFilter=""; state.fu.page=1; fuFetchDataDebounced(); render(); return; }
+    if(t = e.target.closest("[data-fu-popup-open]")){ fuReminderOpenCase(); return; }
+    if(t = e.target.closest("[data-fu-popup-snooze]")){ fuReminderSnooze(); return; }
+    if(t = e.target.closest("[data-fu-popup-contacted]")){ fuReminderMarkContacted(); return; }
+    if(t = e.target.closest("[data-fu-chat-toggle]")){ fuChatToggle(); return; }
+    if(t = e.target.closest("[data-fu-chat-send]")){
+      var ci = $("#fuChatInput");
+      if(ci && ci.value.trim()){ fuChatSend(ci.value); ci.value=""; }
+      return;
+    }
     if(t = e.target.closest("[data-chart-filter]")){
       var ck = t.dataset.chartFilter, cv = t.dataset.chartValue;
       state.dashFilters[ck] = (state.dashFilters[ck]===cv) ? "" : cv;
@@ -1019,6 +1082,13 @@ function initGlobalEvents(){
   document.addEventListener("change", function(e){
     var t;
     if(t = e.target.closest(".roleSel")){ adminSetRole(t.dataset.u, t.value); return; }
+    if(t = e.target.closest("#fuChatWithSelect")){ state.fu.chatWith = t.value; fuChatRefresh(); return; }
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.key==="Enter" && e.target && e.target.id==="fuChatInput"){
+      e.preventDefault();
+      if(e.target.value.trim()){ fuChatSend(e.target.value); e.target.value=""; }
+    }
   });
 }
 
@@ -1033,6 +1103,7 @@ function render(){
     var el = document.getElementById(activeId);
     if(el){ el.focus(); if(selStart != null && el.setSelectionRange){ try{ el.setSelectionRange(selStart, selEnd); }catch(e){} } }
   }
+  renderOverlays();
 }
 function renderInner(){
   var app = $("#app");
@@ -1083,7 +1154,7 @@ function wireAuth(){
 /* ---------- SHELL ---------- */
 function renderShell(){
   var u = state.currentUser;
-  var tabs = [["new","New Request"],["requests","Requests"],["dashboard","Dashboard"],["account","Account"]];
+  var tabs = [["new","New Request"],["requests","Requests"],["followup","Follow-up & Reminders"],["dashboard","Dashboard"],["account","Account"]];
   if(canCreateAccounts()) tabs.push(["team","Team"]);
   var initials = (u.username||"?").slice(0,2).toUpperCase();
   return '<div class="topbar">'+
@@ -1100,12 +1171,14 @@ function wireShell(){
   var lb = $("#logoutBtn"); if(lb) lb.addEventListener("click", doLogout);
   if(state.route==="new") wireNewRequest();
   if(state.route==="requests") wireRequests();
+  if(state.route==="followup") wireFollowup();
   if(state.route==="dashboard") wireDashboard();
   if(state.route==="account") wireAccount();
 }
 function renderRoute(){
   if(state.route==="new") return renderNewRequest();
   if(state.route==="requests") return renderRequests();
+  if(state.route==="followup") return renderFollowup();
   if(state.route==="dashboard") return renderDashboard();
   if(state.route==="account") return renderAccount();
   if(state.route==="team" && canCreateAccounts()) return renderTeam();
@@ -2101,6 +2174,776 @@ function renderTeam(){
   '<div class="card"><h2>Team</h2><p class="sub">Manage roles and reset passwords.</p>'+
     '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>Username</th><th>Role</th><th>Requests</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
   '</div>';
+}
+
+/* ========================================================================
+   FOLLOW-UP & REMINDERS
+   A second feature area layered on the same session/API — it has its OWN
+   access rule, independent of the Cancel Desk's role column: there is
+   exactly one Super Admin ("shenoudah"), checked by username only, and
+   every other logged-in user (agent, operations, even a second "admin"
+   account) is an ordinary employee restricted to their own assigned cases.
+   This mirrors the backend's isFollowupSuperAdmin() exactly — but the real
+   enforcement is server-side there; this client copy is UI-only (hiding a
+   button here changes nothing if someone calls the API directly).
+   ======================================================================== */
+var FOLLOWUP_SUPER_ADMIN_USERNAME = "shenoudah";
+function isFollowupSuperAdminClient(){ return state.currentUser && String(state.currentUser.username||"").toLowerCase()===FOLLOWUP_SUPER_ADMIN_USERNAME; }
+var FU_RESOLUTION_LABELS = { pending:"Pending", resolved:"Resolved", not_resolved:"Not Resolved", reopened:"Reopened" };
+var FU_CONTACT_OUTCOMES = ["Answered","No Answer","Busy","Wrong Number","Callback Requested","Customer Updated"];
+var FU_DEPARTMENTS = ["Customer Care","Sales","Delivery","Store Operations","Online Operations","Finance"];
+var FU_PAGE_SIZE = 20;
+
+function fuInitialState(){
+  return {
+    view:"list", preset:"today", customFrom:"", customTo:"", agentFilter:"",
+    kpiFilter:"", search:"", statusFilter:"", priorityFilter:"",
+    page:1, openCaseId:null, caseDetail:null,
+    kpis:null, cases:[], range:null, adminOverview:null,
+    _reqSeq:0, _loadedOnce:false, loading:false,
+    activeReminder:null, reminderQueue:[],
+    chatOpen:false, chatWith:"", chatMessages:[], chatUnread:0
+  };
+}
+
+/* ---------- business-timezone date helpers ----------
+   Pan Home's operations are UAE-based; the business timezone is Asia/Dubai
+   (UTC+4, no DST, so a fixed offset is exact, not an approximation). All
+   Follow-up date-range boundaries are computed in this timezone and then
+   converted to UTC ms for querying createdAt (which the backend always
+   stores/returns as a UTC ISO string) — never the viewer's own browser
+   timezone, which would otherwise make "Today" mean a different window for
+   an agent whose laptop clock is set to a different country. */
+var BUSINESS_TZ_OFFSET_MIN = 240;
+function fuLocalDateStr(d){
+  var t = new Date(d.getTime() + BUSINESS_TZ_OFFSET_MIN*60000);
+  return t.getUTCFullYear()+"-"+pad2(t.getUTCMonth()+1)+"-"+pad2(t.getUTCDate());
+}
+function fuTodayLocal(){ return fuLocalDateStr(new Date()); }
+function fuAddDaysLocal(dateStr, n){
+  var d = new Date(dateStr+"T00:00:00.000Z"); d.setUTCDate(d.getUTCDate()+n);
+  return d.getUTCFullYear()+"-"+pad2(d.getUTCMonth()+1)+"-"+pad2(d.getUTCDate());
+}
+// Converts an INCLUSIVE local business-tz calendar-date range into
+// [fromUTCms, toUTCmsExclusive) for filtering createdAt.
+function fuLocalRangeToUTC(fromStr, toStr){
+  var from = new Date(fromStr+"T00:00:00.000Z").getTime() - BUSINESS_TZ_OFFSET_MIN*60000;
+  var toNext = new Date(toStr+"T00:00:00.000Z").getTime() - BUSINESS_TZ_OFFSET_MIN*60000 + 86400000;
+  return { fromUTC: from, toUTC: toNext };
+}
+function fuPresetRange(preset, customFrom, customTo){
+  var today = fuTodayLocal();
+  if(preset==="today") return { from: today, to: today };
+  if(preset==="prev3") return { from: fuAddDaysLocal(today,-3), to: fuAddDaysLocal(today,-1) }; // 3 complete days, excluding today
+  if(preset==="lastWeek"){
+    var d = new Date(today+"T00:00:00.000Z");
+    var dow = d.getUTCDay(); // 0=Sun..6=Sat
+    var mondayThisWeek = fuAddDaysLocal(today, -(dow===0?6:dow-1));
+    var lastSun = fuAddDaysLocal(mondayThisWeek, -1);
+    var lastMon = fuAddDaysLocal(lastSun, -6);
+    return { from: lastMon, to: lastSun };
+  }
+  if(preset==="thisMonth") return { from: today.slice(0,8)+"01", to: today };
+  if(preset==="custom") return { from: customFrom||today, to: customTo||today };
+  return { from: today, to: today };
+}
+function fuPresetLabel(preset){
+  return {today:"Today", prev3:"Previous 3 Days", lastWeek:"Last Week", thisMonth:"This Month", custom:"Custom"}[preset] || preset;
+}
+function fuAgentUsernames(){
+  return state.users.filter(function(u){ return String(u.username||"").toLowerCase()!==FOLLOWUP_SUPER_ADMIN_USERNAME; })
+    .map(function(u){ return u.username; }).sort();
+}
+
+/* ---------- data fetch (debounced, stale-response-safe) ---------- */
+var _fuFetchTimer = null;
+function fuFetchDataDebounced(){ clearTimeout(_fuFetchTimer); _fuFetchTimer = setTimeout(fuFetchData, 220); }
+function fuFetchData(){
+  if(!state.currentUser) return;
+  if(state.fu.preset==="custom" && (!state.fu.customFrom || !state.fu.customTo || state.fu.customFrom > state.fu.customTo)){
+    render(); return; // invalid custom range — show the inline error instead of querying
+  }
+  var range = fuPresetRange(state.fu.preset, state.fu.customFrom, state.fu.customTo);
+  var utc = fuLocalRangeToUTC(range.from, range.to);
+  var mySeq = ++state.fu._reqSeq;
+  state.fu.loading = true;
+  var isAdmin = isFollowupSuperAdminClient();
+  var q = { fromUTC: utc.fromUTC, toUTC: utc.toUTC, agent: isAdmin ? state.fu.agentFilter : "" };
+  var calls = [ apiCall("fu_kpis", { caller: callerCred(), query: q }), apiCall("fu_list", { caller: callerCred(), query: q }) ];
+  if(isAdmin) calls.push(apiCall("fu_adminOverview", { caller: callerCred(), query: q }));
+  Promise.all(calls).then(function(res){
+    if(mySeq !== state.fu._reqSeq) return; // a newer request has since been issued — discard this stale one
+    state.fu.kpis = res[0];
+    state.fu.cases = (res[1].cases||[]).map(function(r){
+      r.createdAt = toMs(r.createdAt); r.lastUpdate = toMs(r.lastUpdate);
+      r.nextFollowupAt = r.nextFollowupAt ? toMs(r.nextFollowupAt) : null;
+      return r;
+    });
+    if(isAdmin) state.fu.adminOverview = res[2];
+    state.fu.loading = false;
+    state.fu.range = range;
+    render();
+  }).catch(function(e){
+    if(mySeq !== state.fu._reqSeq) return;
+    state.fu.loading = false;
+    toast("Couldn't load Follow-up data: "+e.message);
+    render();
+  });
+}
+// The server already returns only cases this caller is authorized to see
+// (fu_list/fu_kpis enforce ownership) — everything below filters that
+// already-authorized set client-side, exactly like the existing
+// Requests/Dashboard pages do with getAll(); it never widens what's shown.
+function fuFilteredRows(){
+  var rows = state.fu.cases.slice();
+  var range = state.fu.range;
+  // Overdue is a live snapshot, independent of the creation-date range (see
+  // the matching comment in fuKpis() on the backend) — every other KPI
+  // filter (and the unfiltered/"Total" view) stays scoped to the range.
+  if(state.fu.kpiFilter !== "overdue" && range){
+    var utc = fuLocalRangeToUTC(range.from, range.to);
+    rows = rows.filter(function(r){ return r.createdAt>=utc.fromUTC && r.createdAt<utc.toUTC; });
+  }
+  if(state.fu.kpiFilter==="remaining") rows = rows.filter(function(r){ return r.resolutionStatus!=="resolved"; });
+  else if(state.fu.kpiFilter==="resolved") rows = rows.filter(function(r){ return r.resolutionStatus==="resolved"; });
+  else if(state.fu.kpiFilter==="overdue") rows = rows.filter(function(r){ return r.overdue; });
+  if(state.fu.statusFilter) rows = rows.filter(function(r){ return r.resolutionStatus===state.fu.statusFilter; });
+  if(state.fu.priorityFilter) rows = rows.filter(function(r){ return r.priority===state.fu.priorityFilter; });
+  if(state.fu.search){
+    var q = state.fu.search.toLowerCase();
+    rows = rows.filter(function(r){
+      var hay = [r.id,r.orderNumber,r.customerName,r.complaintRef,r.brief,r.assignedAgent].join(" ").toLowerCase();
+      var textMatch = hay.indexOf(q)!==-1;
+      var phoneMatch = /\d/.test(state.fu.search) ? mobileMatches(r.callerPhone, state.fu.search) : false;
+      return textMatch || phoneMatch;
+    });
+  }
+  rows.sort(function(a,b){ return b.createdAt - a.createdAt; });
+  return rows;
+}
+function fuPaginate(rows){
+  var totalPages = Math.max(1, Math.ceil(rows.length/FU_PAGE_SIZE));
+  var page = Math.min(Math.max(1,state.fu.page), totalPages);
+  var start = (page-1)*FU_PAGE_SIZE;
+  return { page:page, totalPages:totalPages, slice: rows.slice(start, start+FU_PAGE_SIZE) };
+}
+
+/* ---------- reminder polling + popup ---------- */
+function fuPollReminders(){
+  if(!state.currentUser) return;
+  apiCall("fu_dueReminders", { caller: callerCred() }).then(function(res){
+    var list = res.reminders||[];
+    var known = {};
+    if(state.fu.activeReminder) known[state.fu.activeReminder.logId]=true;
+    state.fu.reminderQueue.forEach(function(r){ known[r.logId]=true; });
+    list.forEach(function(r){ if(!known[r.logId]) state.fu.reminderQueue.push(r); });
+    if(!state.fu.activeReminder && state.fu.reminderQueue.length) state.fu.activeReminder = state.fu.reminderQueue.shift();
+    renderOverlays(); // popup lives outside #app — never needs a full render()
+  }).catch(function(){});
+}
+function fuAdvanceReminderQueue(){ state.fu.activeReminder = state.fu.reminderQueue.length ? state.fu.reminderQueue.shift() : null; }
+function fuReminderOpenCase(){
+  var r = state.fu.activeReminder; if(!r) return;
+  apiCall("fu_ackReminder", { caller: callerCred(), logId:r.logId, ackAction:"open" }).catch(function(){});
+  state.route = "followup"; state.fu.view = "open"; state.fu.openCaseId = r.caseId;
+  fuAdvanceReminderQueue();
+  fuOpenCaseLoad(r.caseId);
+  render(); // explicit navigation — a full repaint is expected here
+}
+function fuReminderSnooze(){
+  var r = state.fu.activeReminder; if(!r) return;
+  apiCall("fu_snooze", { caller: callerCred(), id:r.caseId }).then(function(){ toast("Snoozed."); })
+    .catch(function(e){ toast("Couldn't snooze: "+fuErrText(e.message)); });
+  apiCall("fu_ackReminder", { caller: callerCred(), logId:r.logId, ackAction:"snooze" }).catch(function(){});
+  fuAdvanceReminderQueue();
+  renderOverlays();
+}
+function fuReminderMarkContacted(){
+  var r = state.fu.activeReminder; if(!r) return;
+  apiCall("fu_contactAttempt", { caller: callerCred(), id:r.caseId, outcome:"Answered", notes:"Marked contacted from the reminder popup" })
+    .then(function(){ return apiCall("fu_completeTask", { caller: callerCred(), id:r.caseId, outcome:"Answered" }); })
+    .then(function(){
+      toast("Marked contacted — reminders stopped for this follow-up.");
+      if(state.route==="followup" && state.fu.view==="list") fuFetchDataDebounced();
+      if(state.route==="followup" && state.fu.view==="open" && state.fu.openCaseId===r.caseId) fuOpenCaseLoad(r.caseId);
+    })
+    .catch(function(e){ toast("Couldn't update: "+fuErrText(e.message)); });
+  apiCall("fu_ackReminder", { caller: callerCred(), logId:r.logId, ackAction:"contacted" }).catch(function(){});
+  fuAdvanceReminderQueue();
+  renderOverlays();
+}
+
+/* ---------- Shenoudah <-> agent chat ---------- */
+function fuPollChatUnread(){
+  if(!state.currentUser) return;
+  apiCall("chat_unreadCount", { caller: callerCred() }).then(function(res){
+    state.fu.chatUnread = res.count||0;
+    renderOverlays();
+  }).catch(function(){});
+}
+function fuChatToggle(){ state.fu.chatOpen = !state.fu.chatOpen; if(state.fu.chatOpen) fuChatRefresh(); else renderOverlays(); }
+function fuChatRefresh(){
+  if(!state.currentUser) return;
+  var withUser = isFollowupSuperAdminClient() ? state.fu.chatWith : FOLLOWUP_SUPER_ADMIN_USERNAME;
+  if(!withUser){ state.fu.chatMessages=[]; renderOverlays(); return; }
+  apiCall("chat_list", { caller: callerCred(), withUser: withUser }).then(function(res){
+    state.fu.chatMessages = res.messages||[];
+    var unreadIncoming = state.fu.chatMessages.filter(function(m){
+      return String(m.toUser).toLowerCase()===state.currentUser.username.toLowerCase() && !m.readAt;
+    }).map(function(m){ return m.id; });
+    if(unreadIncoming.length) apiCall("chat_markRead", { caller: callerCred(), ids: unreadIncoming }).then(fuPollChatUnread).catch(function(){});
+    renderOverlays();
+  }).catch(function(e){ toast("Couldn't load messages: "+e.message); });
+}
+function fuChatSend(text){
+  text = (text||"").trim(); if(!text) return;
+  var withUser = isFollowupSuperAdminClient() ? state.fu.chatWith : FOLLOWUP_SUPER_ADMIN_USERNAME;
+  if(!withUser){ toast("Pick an agent to message first."); return; }
+  apiCall("chat_send", { caller: callerCred(), toUser: withUser, text: text })
+    .then(function(){ fuChatRefresh(); })
+    .catch(function(e){ toast("Couldn't send: "+fuErrText(e.message)); });
+}
+
+/* ---------- overlay rendering (outside #app — never wipes an open form) ---------- */
+function renderReminderPopup(){
+  var root = $("#fuPopupRoot"); if(!root) return;
+  var r = state.fu.activeReminder;
+  if(!r){ root.innerHTML=""; return; }
+  root.innerHTML = '<div class="fu-popup">'+
+    '<h3>🔔 Customer Follow-up Due</h3>'+
+    '<p class="sub">'+(r.orderNumber?('Order '+esc(r.orderNumber)+' — '):'')+esc(r.brief||"")+'</p>'+
+    '<p class="sub" style="margin-bottom:10px">'+fuPriorityBadge(r.priority)+' · Due '+fmtDate(toMs(r.firedAt))+'</p>'+
+    '<div class="btnrow">'+
+      '<button class="btn sm" data-fu-popup-open>Open Case</button>'+
+      '<button class="btn sm" data-fu-popup-snooze>Snooze</button>'+
+      '<button class="btn good sm" data-fu-popup-contacted>Mark Contacted</button>'+
+    '</div>'+
+  '</div>';
+}
+function renderChatWidget(){
+  var root = $("#fuChatRoot"); if(!root) return;
+  if(!state.currentUser){ root.innerHTML=""; return; }
+  var badge = state.fu.chatUnread>0 ? '<span class="fu-chat-badge">'+state.fu.chatUnread+'</span>' : '';
+  // .fu-chat-btn is already position:fixed in the stylesheet, which on its
+  // own is enough to also anchor the absolutely-positioned badge span inside
+  // it — no inline style override needed (and overriding to `relative` here
+  // would have un-pinned the button from the viewport corner entirely).
+  var btn = '<button class="btn primary fu-chat-btn" data-fu-chat-toggle>💬 Messages'+badge+'</button>';
+  if(!state.fu.chatOpen){ root.innerHTML = btn; return; }
+  var isAdmin = isFollowupSuperAdminClient();
+  var agentPicker = isAdmin ? ('<select id="fuChatWithSelect" style="font-size:12px;padding:3px 6px;border-radius:6px">'+
+      '<option value="">Pick an agent…</option>'+
+      fuAgentUsernames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.fu.chatWith===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+
+    '</select>') : '';
+  var msgs = (state.fu.chatMessages||[]).map(function(m){
+    var mine = String(m.fromUser).toLowerCase()===state.currentUser.username.toLowerCase();
+    return '<div class="msg'+(mine?" me":"")+'">'+esc(m.text)+'<div style="font-size:10px;opacity:.65;margin-top:3px">'+fmtDate(toMs(m.createdAt))+'</div></div>';
+  }).join("");
+  root.innerHTML = btn+
+    '<div class="fu-chat-panel">'+
+      '<div class="hd"><span>'+(isAdmin?"Agent Messages":"Message Admin (shenoudah)")+'</span>'+agentPicker+'</div>'+
+      '<div class="msgs" id="fuChatMsgs">'+(msgs || '<p class="sub" style="margin:0">No messages yet.</p>')+'</div>'+
+      '<div class="ft"><input type="text" id="fuChatInput" placeholder="Type a message…"><button class="btn sm primary" data-fu-chat-send>Send</button></div>'+
+    '</div>';
+  var box = $("#fuChatMsgs"); if(box) box.scrollTop = box.scrollHeight;
+}
+function renderOverlays(){ renderReminderPopup(); renderChatWidget(); }
+
+/* ---------- small render helpers ---------- */
+function fuPriorityBadge(p){
+  var cls = p==="High" ? "bad" : (p==="Medium" ? "pending" : "store");
+  return '<span class="badge '+cls+'">'+esc(p||"—")+'</span>';
+}
+function fuResolutionBadge(s){
+  var map = { pending:["pending","Pending"], resolved:["closed","Resolved"], not_resolved:["bad","Not Resolved"], reopened:["sent","Reopened"] };
+  var m = map[s]||["store",s];
+  return '<span class="badge '+m[0]+'">'+esc(m[1])+'</span>';
+}
+function fuFollowupStatusBadge(s){
+  var map = { scheduled:["sent","Scheduled"], completed:["closed","Completed"], cancelled:["store","Cancelled"], none:["store","—"] };
+  var m = map[s]||["store",s];
+  return '<span class="badge '+m[0]+'">'+esc(m[1])+'</span>';
+}
+function fuResolutionChart(){
+  var rows = state.fu.cases.slice();
+  var range = state.fu.range;
+  if(range){ var utc=fuLocalRangeToUTC(range.from, range.to); rows = rows.filter(function(r){ return r.createdAt>=utc.fromUTC && r.createdAt<utc.toUTC; }); }
+  var byStatus = countBy(rows, function(r){ return FU_RESOLUTION_LABELS[r.resolutionStatus] || r.resolutionStatus; });
+  return donutSVG(toPairs(byStatus), {"Pending":"warn","Resolved":"good","Not Resolved":"bad","Reopened":"info"});
+}
+function fuTableRows(rows){
+  if(!rows.length) return '<tr><td colspan="12"><div class="empty"><div class="big">🔔</div><h3 style="margin:0 0 6px">No cases match these filters</h3><p class="sub" style="margin:0">Try a different date range, or clear a filter.</p></div></td></tr>';
+  return rows.map(function(r){
+    return '<tr>'+
+      '<td>FU-'+esc(r.id.split("-").pop())+'</td>'+
+      '<td>'+(r.orderNumber?esc(r.orderNumber):"—")+'</td>'+
+      '<td>'+(r.callerPhone?esc(r.callerPhone):"—")+'</td>'+
+      '<td style="max-width:220px;white-space:normal">'+esc(r.brief)+'</td>'+
+      '<td>'+esc(r.assignedAgent)+'</td>'+
+      '<td>'+fuPriorityBadge(r.priority)+'</td>'+
+      '<td>'+(r.nextFollowupAt?fmtDate(r.nextFollowupAt):"—")+'</td>'+
+      '<td>'+fuFollowupStatusBadge(r.followupStatus)+(r.overdue?' <span class="badge bad">Overdue</span>':'')+'</td>'+
+      '<td>'+fuResolutionBadge(r.resolutionStatus)+'</td>'+
+      '<td style="max-width:180px;white-space:normal">'+(r.lastNote?esc(r.lastNote):"—")+'</td>'+
+      '<td>'+fmtDate(r.lastUpdate)+'</td>'+
+      '<td><button class="btn sm" data-fu-open="'+esc(r.id)+'">Open Case</button></td>'+
+    '</tr>';
+  }).join("");
+}
+function fuDateSelectorHtml(){
+  var presets = ["today","prev3","lastWeek","thisMonth","custom"];
+  var invalidCustom = state.fu.preset==="custom" && state.fu.customFrom && state.fu.customTo && state.fu.customFrom>state.fu.customTo;
+  return '<div class="btnrow" style="gap:16px;flex-wrap:wrap">'+
+    '<div class="fu-scopebar">'+ presets.map(function(p){ return '<button data-fu-preset="'+p+'" class="'+(state.fu.preset===p?"active":"")+'">'+fuPresetLabel(p)+'</button>'; }).join("") +'</div>'+
+    (state.fu.preset==="custom" ? (
+      '<div class="field'+(invalidCustom?" invalid":"")+'" style="width:150px"><label>From</label><input type="date" id="fuCustomFrom" value="'+esc(state.fu.customFrom)+'"></div>'+
+      '<div class="field'+(invalidCustom?" invalid":"")+'" style="width:150px"><label>To</label><input type="date" id="fuCustomTo" value="'+esc(state.fu.customTo)+'"></div>'
+    ) : '')+
+    (isFollowupSuperAdminClient() ? (
+      '<div class="field" style="width:170px"><label>Agent</label><select id="fuAgentFilter"><option value="">All Agents</option>'+
+        fuAgentUsernames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.fu.agentFilter===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+
+      '</select></div>'
+    ) : '')+
+  '</div>'+
+  (invalidCustom ? '<div class="banner bad" style="margin-top:10px">"From" must be on or before "To".</div>' : '');
+}
+function fuKpiCard(key, label, value, sub){
+  var active = state.fu.kpiFilter===key;
+  return '<div class="kpi fu-kpi'+(active?" active":"")+'" data-fu-kpi="'+key+'">'+
+    '<div class="lbl">'+esc(label)+'</div><div class="val num">'+value+'</div><div class="sub">'+esc(sub||"")+'</div></div>';
+}
+function fuKpiChip(){
+  if(!state.fu.kpiFilter) return '';
+  var labels = { remaining:"Remaining Cases", resolved:"Resolved Cases", total:"Total Cases", overdue:"Overdue Follow-ups" };
+  return '<div class="btnrow" style="margin:10px 0 0">'+
+    '<span class="badge info">Filter: '+esc(labels[state.fu.kpiFilter]||state.fu.kpiFilter)+'</span>'+
+    '<button type="button" class="linkbtn" data-fu-kpi-clear>Clear / Show All</button>'+
+  '</div>';
+}
+function fuErrText(code){
+  var map = {
+    brief_required:"Case Brief is required.", due_date_must_be_future:"The follow-up date/time must be in the future.",
+    forbidden_assign:"Only the Super Admin can assign a case to someone else.",
+    forbidden_case_access:"You don't have access to that case.", case_not_found:"That case no longer exists.",
+    reason_required:"A reason is required.", next_step_required:"A next step is required.",
+    resolution_note_required:"A resolution note is required.", no_active_task:"There is no active follow-up to act on.",
+    outcome_required:"Pick an outcome.", bad_outcome:"That outcome isn't recognized.", text_required:"Enter a message.",
+    forbidden_recipient:"You can only message the admin.", forbidden_super_admin_only:"Admin only.",
+    to_agent_required:"Pick an agent.", bad_resolution_status:"That resolution status isn't recognized."
+  };
+  return map[code] || code;
+}
+
+/* ---------- list view (date selector + KPIs + chart + table) ---------- */
+function renderFollowupList(){
+  var k = state.fu.kpis || { remaining:0, resolved:0, total:0, overdue:0, resolvedDuringPeriod:0, resolutionRate:0 };
+  var rows = fuFilteredRows();
+  var pg = fuPaginate(rows);
+  var rangeLabel = state.fu.range ? (state.fu.range.from===state.fu.range.to ? state.fu.range.from : state.fu.range.from+" → "+state.fu.range.to) : "";
+  var pastRange = state.fu.preset!=="today";
+  return '<div class="card">'+
+    '<div class="btnrow" style="justify-content:space-between;margin-bottom:12px;flex-wrap:wrap">'+
+      '<div><h2 style="margin:0">Follow-up &amp; Reminders</h2><p class="sub" style="margin:2px 0 0">'+(rangeLabel?("Period: "+esc(rangeLabel)+" (business time, Asia/Dubai)"+(state.fu.loading?" · refreshing…":"")):"")+'</p></div>'+
+      '<button class="btn primary" id="fuNewBtn">+ New Follow-up</button>'+
+    '</div>'+
+    fuDateSelectorHtml()+
+  '</div>'+
+  '<div class="kpis">'+
+    fuKpiCard("remaining","Remaining", k.remaining, "Pending + Not Resolved + Reopened")+
+    fuKpiCard("resolved","Resolved", k.resolved, (k.resolvedDuringPeriod!=null?(k.resolvedDuringPeriod+" resolved during period"):""))+
+    fuKpiCard("total","Total Unique Cases", k.total, "Remaining + Resolved · "+k.resolutionRate+"% resolution rate")+
+    fuKpiCard("overdue","Overdue Follow-ups", k.overdue, "as of the selected cutoff")+
+  '</div>'+
+  fuKpiChip()+
+  (pastRange ? '<p class="sub" style="margin:8px 0 0">Note: the table below always shows each case\'s CURRENT status; the four numbers above reflect status as of the selected period\'s end.</p>' : '')+
+  '<div class="card"><h2 style="font-size:14.5px">Resolution Breakdown</h2>'+ fuResolutionChart() +'</div>'+
+  '<div class="card">'+
+    '<div class="filterbar" style="margin-bottom:14px">'+
+      '<div class="field grow"><label>Search</label><input type="text" id="fuSearch" placeholder="Order #, phone, case ID, brief, agent…" value="'+esc(state.fu.search)+'"></div>'+
+      '<div class="field"><label>Resolution Status</label><select id="fuStatusFilter"><option value="">All</option>'+
+        Object.keys(FU_RESOLUTION_LABELS).map(function(sk){ return '<option value="'+sk+'" '+(state.fu.statusFilter===sk?"selected":"")+'>'+FU_RESOLUTION_LABELS[sk]+'</option>'; }).join("")+
+      '</select></div>'+
+      '<div class="field"><label>Priority</label><select id="fuPriorityFilter"><option value="">All</option>'+
+        ["High","Medium","Low"].map(function(p){ return '<option value="'+p+'" '+(state.fu.priorityFilter===p?"selected":"")+'>'+p+'</option>'; }).join("")+
+      '</select></div>'+
+    '</div>'+
+    '<p class="sub" style="margin:0 0 10px">Showing '+pg.slice.length+' of '+rows.length+' case(s)'+(rows.length!==state.fu.cases.length?(" — filtered from "+state.fu.cases.length+" visible to you"):"")+'.</p>'+
+    '<div class="tablewrap"><table class="teamtbl"><thead><tr>'+
+      ["Case ID","Order","Caller","Brief","Agent","Priority","Next Follow-up","Follow-up Status","Resolution","Last Note","Last Update",""].map(function(h){ return '<th>'+h+'</th>'; }).join("")+
+    '</tr></thead><tbody>'+ fuTableRows(pg.slice) +'</tbody></table></div>'+
+    (pg.totalPages>1 ? (
+      '<div class="btnrow" style="margin-top:12px;justify-content:center">'+
+        '<button class="btn sm" data-fu-page="'+(pg.page-1)+'" '+(pg.page<=1?"disabled":"")+'>‹ Prev</button>'+
+        '<span class="sub">Page '+pg.page+' of '+pg.totalPages+'</span>'+
+        '<button class="btn sm" data-fu-page="'+(pg.page+1)+'" '+(pg.page>=pg.totalPages?"disabled":"")+'>Next ›</button>'+
+      '</div>'
+    ) : '')+
+  '</div>'+
+  (isFollowupSuperAdminClient() ? renderFollowupAdminOverview() : '');
+}
+function renderFollowupAdminOverview(){
+  var data = state.fu.adminOverview || { agents:[] };
+  var rows = data.agents.map(function(a){
+    return '<tr><td>'+esc(a.agent)+'</td><td class="num">'+a.total+'</td><td class="num">'+a.remaining+'</td><td class="num">'+a.resolved+'</td><td class="num">'+a.notResolved+'</td><td class="num">'+a.overdue+'</td><td>'+(a.lastActivity?fmtDate(a.lastActivity):"—")+'</td>'+
+      '<td><button class="btn sm" data-fu-agent-drill="'+esc(a.agent)+'">View Cases</button></td></tr>';
+  }).join("");
+  return '<div class="card"><div class="btnrow" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap">'+
+    '<h2 style="margin:0;font-size:15px">Admin Overview — By Agent</h2>'+
+    '<button class="btn sm" id="fuExportXlsxBtn">📊 Export Excel</button>'+
+  '</div>'+
+  '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>Agent</th><th>Total</th><th>Remaining</th><th>Resolved</th><th>Not Resolved</th><th>Overdue</th><th>Last Activity</th><th></th></tr></thead><tbody>'+
+    (rows || '<tr><td colspan="8"><p class="sub">No data for the selected period.</p></td></tr>')+
+  '</tbody></table></div></div>';
+}
+function fuExportAdminOverviewXlsx(){
+  if(typeof XLSX==="undefined"){ toast("Excel library didn't load — check your connection and try again."); return; }
+  var data = state.fu.adminOverview || { agents:[] };
+  var wb = XLSX.utils.book_new();
+  var agentHeader = ["Agent","Total","Remaining","Resolved","Not Resolved","Overdue","Last Activity"];
+  var agentRows = [agentHeader].concat(data.agents.map(function(a){
+    return [a.agent, a.total, a.remaining, a.resolved, a.notResolved, a.overdue, a.lastActivity?fmtDate(a.lastActivity):""];
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(agentRows), "By Agent");
+  var caseHeader = ["Case ID","Order","Customer","Caller Phone","Agent","Priority","Resolution Status","Follow-up Status","Next Follow-up","Last Note","Last Update"];
+  var caseRows = [caseHeader].concat(state.fu.cases.map(function(r){
+    return [r.id, r.orderNumber, r.customerName, r.callerPhone, r.assignedAgent, r.priority,
+      FU_RESOLUTION_LABELS[r.resolutionStatus]||r.resolutionStatus, r.followupStatus,
+      r.nextFollowupAt?fmtDate(r.nextFollowupAt):"", r.lastNote, fmtDate(r.lastUpdate)];
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(caseRows), "Cases (current filter)");
+  XLSX.writeFile(wb, "PanHome_Followup_AdminOverview.xlsx");
+  toast("Excel exported — "+state.fu.cases.length+" case(s).");
+}
+function wireFollowupListPage(){
+  if(!state.fu._loadedOnce){ state.fu._loadedOnce = true; fuFetchData(); }
+  var sEl=$("#fuSearch"); if(sEl) sEl.addEventListener("input", function(){ state.fu.search=this.value; state.fu.page=1; render(); });
+  var stEl=$("#fuStatusFilter"); if(stEl) stEl.addEventListener("change", function(){ state.fu.statusFilter=this.value; state.fu.page=1; render(); });
+  var prEl=$("#fuPriorityFilter"); if(prEl) prEl.addEventListener("change", function(){ state.fu.priorityFilter=this.value; state.fu.page=1; render(); });
+  var cf=$("#fuCustomFrom"); if(cf) cf.addEventListener("change", function(){ state.fu.customFrom=this.value; state.fu.page=1; fuFetchDataDebounced(); render(); });
+  var ct=$("#fuCustomTo"); if(ct) ct.addEventListener("change", function(){ state.fu.customTo=this.value; state.fu.page=1; fuFetchDataDebounced(); render(); });
+  var ag=$("#fuAgentFilter"); if(ag) ag.addEventListener("change", function(){ state.fu.agentFilter=this.value; state.fu.page=1; fuFetchDataDebounced(); });
+  var newBtn=$("#fuNewBtn"); if(newBtn) newBtn.addEventListener("click", function(){ state.fu.view="new"; render(); });
+  var xbtn=$("#fuExportXlsxBtn"); if(xbtn) xbtn.addEventListener("click", fuExportAdminOverviewXlsx);
+}
+
+/* ---------- New Follow-up form ---------- */
+function fuDefaultDueDate(){
+  // A real future date/time computed at render time, never a fixed calendar
+  // date — defaults to today at 14:30 (or tomorrow if 14:30 already passed).
+  var d = new Date(); d.setHours(14,30,0,0);
+  if(d.getTime() <= Date.now()) d.setDate(d.getDate()+1);
+  return d;
+}
+function fuDateTimeLocalValue(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate())+"T"+pad2(d.getHours())+":"+pad2(d.getMinutes()); }
+function renderFollowupNew(){
+  var def = fuDefaultDueDate();
+  var canAssign = isFollowupSuperAdminClient();
+  return '<div class="card">'+
+    '<div class="btnrow" style="justify-content:space-between;margin-bottom:10px">'+
+      '<h2 style="margin:0">New Follow-up</h2>'+
+      '<button type="button" class="linkbtn" id="fuBackToList">‹ Back to list</button>'+
+    '</div>'+
+    '<form id="fuNewForm">'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Order Number</label><input type="text" id="fuOrderNumber" placeholder="Optional — leave blank if there is no order"></div>'+
+        '<div class="field"><label>Caller Phone *</label><input type="tel" id="fuCallerPhone" placeholder="e.g. 0501234567"></div>'+
+      '</div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Customer Name</label><input type="text" id="fuCustomerName"></div>'+
+        '<div class="field"><label>Complaint Reference</label><input type="text" id="fuComplaintRef" placeholder="Existing complaint # if any"></div>'+
+      '</div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Case Brief *</label><textarea id="fuBrief" placeholder="What is this follow-up about?"></textarea></div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Notes</label><textarea id="fuNotes"></textarea></div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Priority</label><select id="fuPriority"><option value="High" selected>High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></div>'+
+        '<div class="field"><label>Department</label><select id="fuDepartment"><option value="">Select…</option>'+
+          FU_DEPARTMENTS.map(function(d2){ return '<option value="'+esc(d2)+'">'+esc(d2)+'</option>'; }).join("")+
+        '</select></div>'+
+      '</div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Follow-up Due (Date/Time) *</label><input type="datetime-local" id="fuDueAt" value="'+fuDateTimeLocalValue(def)+'"><div class="hint">Must be in the future. Default: next 14:30.</div></div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Alert Window From</label><input type="time" id="fuAlertFrom" value="14:00"></div>'+
+        '<div class="field"><label>Alert Window To</label><input type="time" id="fuAlertTo" value="17:00"></div>'+
+      '</div>'+
+      '<div class="grid cols2" style="margin-bottom:14px">'+
+        '<div class="field"><label>Repeat Interval (minutes)</label><input type="number" id="fuRepeatMin" value="15" min="1"></div>'+
+        '<div class="field"><label>Snooze (minutes)</label><input type="number" id="fuSnoozeMin" value="10" min="1"></div>'+
+      '</div>'+
+      (canAssign ? (
+        '<div class="field" style="margin-bottom:14px"><label>Assigned Agent</label><select id="fuAssignedAgent">'+
+          '<option value="'+esc(state.currentUser.username)+'">Myself ('+esc(state.currentUser.username)+')</option>'+
+          fuAgentUsernames().filter(function(a){ return a.toLowerCase()!==state.currentUser.username.toLowerCase(); })
+            .map(function(a){ return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join("")+
+        '</select></div>'
+      ) : '')+
+      '<div class="field" style="margin-bottom:14px"><label>Source</label><select id="fuSource"><option value="">Select…</option>'+
+        SOURCES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
+      '</select></div>'+
+      '<button class="btn primary" type="submit">Save Follow-up</button>'+
+    '</form>'+
+  '</div>';
+}
+function wireFollowupNew(){
+  var back = $("#fuBackToList"); if(back) back.addEventListener("click", function(){ state.fu.view="list"; render(); });
+  var orderEl = $("#fuOrderNumber");
+  if(orderEl) orderEl.addEventListener("input", function(){
+    // Link to an existing Cancel-Desk order only on an UNAMBIGUOUS exact
+    // match — never on a phone-number match alone, and never silently
+    // overwriting a name the agent already typed.
+    var v = this.value.trim().toUpperCase();
+    var f = fieldOf(this);
+    var hintEl = f && f.querySelector(".hint");
+    if(!hintEl && f){ hintEl = document.createElement("div"); hintEl.className="hint"; f.appendChild(hintEl); }
+    if(!hintEl) return;
+    if(!v){ hintEl.textContent=""; return; }
+    var matches = state.requests.filter(function(r){ return (r.lnOrder||"").toUpperCase()===v || (r.webOrderNumber||"").toUpperCase()===v; });
+    if(matches.length===1){
+      hintEl.textContent = "Matched existing order — "+(matches[0].customerName||"customer")+(matches[0].customerCode?(" ("+matches[0].customerCode+")"):"")+".";
+      var nameEl = $("#fuCustomerName");
+      if(nameEl && !nameEl.value) nameEl.value = matches[0].customerName||"";
+    } else if(matches.length>1){
+      hintEl.textContent = "Multiple orders share this number — not auto-linking.";
+    } else {
+      hintEl.textContent = "";
+    }
+  });
+  var form = $("#fuNewForm");
+  if(form) form.addEventListener("submit", function(e){
+    e.preventDefault();
+    clearInvalidFields();
+    var phoneEl=$("#fuCallerPhone"), briefEl=$("#fuBrief"), dueEl=$("#fuDueAt");
+    var firstBad=null; function fail(el){ markField(el,true); if(!firstBad) firstBad=el; }
+    if(!phoneEl.value.trim()) fail(phoneEl);
+    if(!briefEl.value.trim()) fail(briefEl);
+    var dueDate = dueEl.value ? new Date(dueEl.value) : null;
+    if(!dueDate || isNaN(dueDate.getTime()) || dueDate.getTime()<=Date.now()) fail(dueEl);
+    if(firstBad){ toast("Please fix the field(s) highlighted in red."); firstBad.focus(); return; }
+    var data = {
+      orderNumber: $("#fuOrderNumber").value.trim(), callerPhone: phoneEl.value.trim(),
+      customerName: $("#fuCustomerName").value.trim(), complaintRef: $("#fuComplaintRef").value.trim(),
+      brief: briefEl.value.trim(), notes: $("#fuNotes").value.trim(),
+      priority: $("#fuPriority").value, department: $("#fuDepartment").value,
+      dueAt: dueDate.toISOString(), alertFrom: $("#fuAlertFrom").value, alertTo: $("#fuAlertTo").value,
+      repeatIntervalMin: parseInt($("#fuRepeatMin").value,10)||15, snoozeDefaultMin: parseInt($("#fuSnoozeMin").value,10)||10,
+      source: $("#fuSource").value,
+      assignedAgent: ($("#fuAssignedAgent")||{}).value || state.currentUser.username
+    };
+    apiCall("fu_createCase", { caller: callerCred(), data: data }).then(function(){
+      toast("Follow-up created.");
+      state.fu.view = "list";
+      fuFetchData();
+    }).catch(function(e){ toast("Couldn't create follow-up: "+fuErrText(e.message)); });
+  });
+}
+
+/* ---------- Open Case detail ---------- */
+function fuOpenCaseLoad(id){
+  state.fu.caseDetail = null;
+  apiCall("fu_get", { caller: callerCred(), id: id }).then(function(res){
+    state.fu.caseDetail = res;
+    render();
+  }).catch(function(e){
+    toast("Couldn't open case: "+fuErrText(e.message));
+    state.fu.view = "list";
+    render();
+  });
+}
+function fuNoteTypeLabel(t){
+  return { note:"Note", call:"Call", status_change:"Status Change", snooze:"Snooze", reschedule:"Reschedule", handoff:"Handoff", instruction:"Instruction" }[t] || "Note";
+}
+// Every mutating action already writes a FU_Notes row server-side (see
+// apps-script-backend.gs), so the notes list alone is a complete,
+// chronological, immutable activity trail — only "case opened" (recorded
+// directly in status history, not as a note) needs adding separately here.
+function fuBuildTimeline(d){
+  var c = d.case;
+  var ev = [{ at: toMs(c.createdAt), who: c.createdBy, label: "Case opened", text: "" }];
+  (d.notes||[]).forEach(function(n){ ev.push({ at: toMs(n.createdAt), who: n.author, label: fuNoteTypeLabel(n.type), text: n.text }); });
+  ev.sort(function(a,b){ return a.at-b.at; });
+  return ev;
+}
+function renderFollowupOpen(){
+  var d = state.fu.caseDetail;
+  if(!d) return '<div class="card"><p class="sub">Loading case…</p></div>';
+  var c = d.case;
+  var task = (d.tasks||[]).filter(function(t){ return t.status==="scheduled"; }).sort(function(a,b){ return new Date(b.createdAt)-new Date(a.createdAt); })[0];
+  var canEdit = isFollowupSuperAdminClient() || String(c.assignedAgent||"").toLowerCase()===state.currentUser.username.toLowerCase();
+
+  var header = '<div class="card">'+
+    '<div class="btnrow" style="justify-content:space-between;flex-wrap:wrap">'+
+      '<div><h2 style="margin:0">Open Customer Case</h2><p class="sub" style="margin:2px 0 0">Case FU-'+esc(c.id.split("-").pop())+'</p></div>'+
+      '<div class="btnrow">'+fuPriorityBadge(c.priority)+fuFollowupStatusBadge(task?task.status:"none")+fuResolutionBadge(c.resolutionStatus)+'</div>'+
+    '</div>'+
+    '<button type="button" class="linkbtn" id="fuBackToList2" style="margin-top:8px">‹ Back to list</button>'+
+  '</div>';
+
+  var summary = '<div class="card"><h2 style="font-size:14.5px">Summary</h2>'+
+    '<div class="note-box">'+esc(c.brief)+'</div>'+
+    '<div class="kv">'+
+      '<div><div class="k">Due</div><div class="vv">'+(task?fmtDate(toMs(task.dueAt)):"—")+'</div></div>'+
+      '<div><div class="k">Alert Window</div><div class="vv">'+(task?(esc(task.alertFrom)+' – '+esc(task.alertTo)):"—")+'</div></div>'+
+      '<div><div class="k">Repeat / Snooze</div><div class="vv">'+(task?("every "+esc(task.repeatIntervalMin)+" min / snooze "+esc(task.snoozeDefaultMin)+" min"):"—")+'</div></div>'+
+      '<div><div class="k">Owner</div><div class="vv">'+esc(c.assignedAgent)+'</div></div>'+
+      '<div><div class="k">Last Update</div><div class="vv">'+fmtDate(toMs(c.lastUpdate))+'</div></div>'+
+      '<div><div class="k">Created</div><div class="vv">'+fmtDate(toMs(c.createdAt))+' by '+esc(c.createdBy)+'</div></div>'+
+    '</div></div>';
+
+  var custCard = '<div class="card"><h2 style="font-size:14.5px">Customer</h2><div class="kv" style="grid-template-columns:1fr">'+
+    '<div><div class="k">Name</div><div class="vv">'+(c.customerName?esc(c.customerName):"—")+'</div></div>'+
+    '<div><div class="k">Phone</div><div class="vv">'+(c.callerPhone?esc(c.callerPhone):"—")+'</div></div>'+
+    '<div><div class="k">Complaint Reference</div><div class="vv">'+(c.complaintRef?esc(c.complaintRef):"—")+'</div></div>'+
+  '</div></div>';
+  var orderCard = '<div class="card"><h2 style="font-size:14.5px">Order</h2><div class="kv" style="grid-template-columns:1fr">'+
+    '<div><div class="k">Order Number</div><div class="vv">'+(c.orderNumber?esc(c.orderNumber):"—")+'</div></div>'+
+    '<div><div class="k">Department</div><div class="vv">'+(c.department?esc(c.department):"—")+'</div></div>'+
+    '<div><div class="k">Source</div><div class="vv">'+(c.source?esc(c.source):"—")+'</div></div>'+
+  '</div></div>';
+  var twoCol = '<div class="chartgrid">'+custCard+orderCard+'</div>';
+
+  var resBtns = canEdit ? (
+    '<div class="btnrow" style="flex-wrap:wrap;gap:8px">'+
+      '<button class="btn sm" data-fu-resolve="pending">Pending</button>'+
+      '<button class="btn good sm" data-fu-resolve="resolved">Resolved</button>'+
+      '<button class="btn bad sm" data-fu-resolve="not_resolved">Not Resolved</button>'+
+      '<button class="btn info sm" data-fu-resolve="reopened">Reopened</button>'+
+    '</div>'+
+    '<div class="opsbox" id="fuResolveBox" hidden style="margin-top:10px">'+
+      '<div class="field" id="fuResolveNoteField" style="margin-bottom:10px"><label>Resolution Note (required for Resolved)</label><textarea id="fuResolveNote"></textarea></div>'+
+      '<div class="field" id="fuResolveReasonField" style="margin-bottom:10px"><label>Reason (required for Not Resolved)</label><textarea id="fuResolveReason"></textarea></div>'+
+      '<div class="field" id="fuResolveNextField" style="margin-bottom:10px"><label>Next Step (required for Not Resolved — new follow-up or documented handoff)</label><textarea id="fuResolveNext"></textarea></div>'+
+      '<button type="button" class="btn good sm" id="fuResolveSave">Save</button>'+
+    '</div>'
+  ) : '<p class="sub">Only the assigned agent or the admin can change this case.</p>';
+  var resolution = '<div class="card"><h2 style="font-size:14.5px">Case Resolution</h2>'+resBtns+'</div>';
+
+  var timeline = fuBuildTimeline(d);
+  var timelineHtml = '<div class="card"><h2 style="font-size:14.5px">Notes &amp; Activity</h2><div class="history">'+
+    (timeline.length ? timeline.map(function(ev){
+      return '<div class="hrow"><span class="t">'+fmtDate(ev.at)+'</span><span><b>'+esc(ev.who)+'</b> — '+esc(ev.label)+(ev.text?(': '+esc(ev.text)):'')+'</span></div>';
+    }).join("") : '<p class="sub">No activity yet.</p>')+
+  '</div></div>';
+
+  var addNote = canEdit ? ('<div class="card"><h2 style="font-size:14.5px">Add Note</h2>'+
+    '<textarea id="fuAddNoteText" placeholder="Add a note…"></textarea>'+
+    '<div class="btnrow" style="margin-top:10px"><button class="btn sm" id="fuAddNoteBtn">Save Note</button></div>'+
+  '</div>') : '';
+
+  var contactAttempt = canEdit ? ('<div class="card"><h2 style="font-size:14.5px">Contact Attempt</h2>'+
+    '<div class="field" style="margin-bottom:10px"><label>Outcome</label><select id="fuContactOutcome">'+
+      FU_CONTACT_OUTCOMES.map(function(o){ return '<option value="'+esc(o)+'">'+esc(o)+'</option>'; }).join("")+
+    '</select></div>'+
+    '<div class="field" style="margin-bottom:10px"><label>Notes</label><textarea id="fuContactNotes"></textarea></div>'+
+    '<button class="btn sm" id="fuContactSaveBtn">Log Contact Attempt</button>'+
+  '</div>') : '';
+
+  var completeReschedule = canEdit ? (task ? (
+    '<div class="card"><h2 style="font-size:14.5px">This Follow-up</h2>'+
+      '<div class="btnrow" style="flex-wrap:wrap;gap:8px">'+
+        '<button class="btn good sm" id="fuCompleteBtn">✅ Complete Follow-up</button>'+
+        '<button class="btn sm" id="fuRescheduleToggle">🔁 Reschedule</button>'+
+      '</div>'+
+      '<div class="opsbox" id="fuCompleteBox" hidden style="margin-top:10px">'+
+        '<div class="field" style="margin-bottom:10px"><label>Outcome</label><select id="fuCompleteOutcome">'+
+          FU_CONTACT_OUTCOMES.map(function(o){ return '<option value="'+esc(o)+'">'+esc(o)+'</option>'; }).join("")+
+        '</select></div>'+
+        '<div class="field" style="margin-bottom:10px"><label>Notes</label><textarea id="fuCompleteNotes"></textarea></div>'+
+        '<p class="sub">This stops reminders for this follow-up. It does NOT resolve the customer issue — use Case Resolution above for that.</p>'+
+        '<button class="btn good sm" id="fuCompleteSave">Save</button>'+
+      '</div>'+
+      '<div class="opsbox" id="fuRescheduleBox" hidden style="margin-top:10px">'+
+        '<div class="field" style="margin-bottom:10px"><label>New Due Date/Time *</label><input type="datetime-local" id="fuRescheduleDue"></div>'+
+        '<div class="field" style="margin-bottom:10px"><label>Reason *</label><textarea id="fuRescheduleReason"></textarea></div>'+
+        '<button class="btn good sm" id="fuRescheduleSave">Save</button>'+
+      '</div>'+
+    '</div>'
+  ) : '<div class="card"><p class="sub">No active follow-up task on this case (it was already completed, cancelled, or superseded). Resolve the case above, or go back and open a new follow-up.</p></div>') : '';
+
+  var reassignBox = isFollowupSuperAdminClient() ? ('<div class="card"><h2 style="font-size:14.5px">Reassign</h2>'+
+    '<div class="btnrow"><select id="fuReassignTo">'+
+      fuAgentUsernames().map(function(a){ return '<option value="'+esc(a)+'" '+(a===c.assignedAgent?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+
+    '</select><button class="btn sm" id="fuReassignBtn">Reassign</button></div>'+
+  '</div>') : '';
+
+  return header+summary+twoCol+resolution+timelineHtml+addNote+contactAttempt+completeReschedule+reassignBox;
+}
+function wireFollowupOpen(){
+  var b1=$("#fuBackToList2"); if(b1) b1.addEventListener("click", function(){ state.fu.view="list"; state.fu.caseDetail=null; fuFetchData(); });
+  var d = state.fu.caseDetail; if(!d) return;
+  var c = d.case;
+
+  $all("[data-fu-resolve]").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var box = $("#fuResolveBox"); if(!box) return;
+      var status = btn.dataset.fuResolve;
+      box.hidden = false;
+      box.dataset.target = status;
+      $("#fuResolveNoteField").style.display = status==="resolved" ? "" : "none";
+      $("#fuResolveReasonField").style.display = status==="not_resolved" ? "" : "none";
+      $("#fuResolveNextField").style.display = status==="not_resolved" ? "" : "none";
+    });
+  });
+  var saveRes = $("#fuResolveSave");
+  if(saveRes) saveRes.addEventListener("click", function(){
+    var box = $("#fuResolveBox");
+    var status = box.dataset.target;
+    apiCall("fu_setResolution", { caller: callerCred(), id:c.id, status:status,
+      resolutionNote: $("#fuResolveNote").value.trim(), reason: $("#fuResolveReason").value.trim(), nextStep: $("#fuResolveNext").value.trim()
+    }).then(function(){ toast("Resolution updated."); fuOpenCaseLoad(c.id); }).catch(function(e){ toast(fuErrText(e.message)); });
+  });
+
+  var addNoteBtn = $("#fuAddNoteBtn");
+  if(addNoteBtn) addNoteBtn.addEventListener("click", function(){
+    var t = $("#fuAddNoteText").value.trim();
+    if(!t){ toast("Write a note first."); return; }
+    apiCall("fu_addNote", { caller: callerCred(), id:c.id, text:t, type:"note" })
+      .then(function(){ toast("Note added."); fuOpenCaseLoad(c.id); }).catch(function(e){ toast(fuErrText(e.message)); });
+  });
+
+  var contactBtn = $("#fuContactSaveBtn");
+  if(contactBtn) contactBtn.addEventListener("click", function(){
+    apiCall("fu_contactAttempt", { caller: callerCred(), id:c.id, outcome:$("#fuContactOutcome").value, notes:$("#fuContactNotes").value.trim() })
+      .then(function(){ toast("Contact attempt logged."); fuOpenCaseLoad(c.id); }).catch(function(e){ toast(fuErrText(e.message)); });
+  });
+
+  var completeBtn = $("#fuCompleteBtn");
+  if(completeBtn) completeBtn.addEventListener("click", function(){ $("#fuCompleteBox").hidden=false; $("#fuRescheduleBox").hidden=true; });
+  var completeSave = $("#fuCompleteSave");
+  if(completeSave) completeSave.addEventListener("click", function(){
+    apiCall("fu_completeTask", { caller: callerCred(), id:c.id, outcome:$("#fuCompleteOutcome").value, notes:$("#fuCompleteNotes").value.trim() })
+      .then(function(){ toast("Follow-up completed — reminders stopped."); fuOpenCaseLoad(c.id); }).catch(function(e){ toast(fuErrText(e.message)); });
+  });
+
+  var reschedToggle = $("#fuRescheduleToggle");
+  if(reschedToggle) reschedToggle.addEventListener("click", function(){ $("#fuRescheduleBox").hidden=false; $("#fuCompleteBox").hidden=true; });
+  var reschedSave = $("#fuRescheduleSave");
+  if(reschedSave) reschedSave.addEventListener("click", function(){
+    var dueVal = $("#fuRescheduleDue").value;
+    var due = dueVal ? new Date(dueVal) : null;
+    if(!due || isNaN(due.getTime()) || due.getTime()<=Date.now()){ toast("Pick a future date/time."); return; }
+    var reason = $("#fuRescheduleReason").value.trim();
+    if(!reason){ toast("A reason is required."); return; }
+    apiCall("fu_reschedule", { caller: callerCred(), id:c.id, dueAt: due.toISOString(), reason: reason })
+      .then(function(){ toast("Rescheduled."); fuOpenCaseLoad(c.id); }).catch(function(e){ toast(fuErrText(e.message)); });
+  });
+
+  var reassignBtn = $("#fuReassignBtn");
+  if(reassignBtn) reassignBtn.addEventListener("click", function(){
+    var sel = $("#fuReassignTo");
+    apiCall("fu_reassign", { caller: callerCred(), id:c.id, toAgent: sel.value })
+      .then(function(){ toast("Reassigned."); fuOpenCaseLoad(c.id); }).catch(function(e){ toast(fuErrText(e.message)); });
+  });
+}
+
+/* ---------- top-level dispatch ---------- */
+function renderFollowup(){
+  if(state.fu.view==="new") return renderFollowupNew();
+  if(state.fu.view==="open") return renderFollowupOpen();
+  return renderFollowupList();
+}
+function wireFollowup(){
+  if(state.fu.view==="new"){ wireFollowupNew(); return; }
+  if(state.fu.view==="open"){ wireFollowupOpen(); return; }
+  wireFollowupListPage();
 }
 
 boot();
