@@ -1414,10 +1414,13 @@ function renderStepper(r){
     '</div>';
   }
   var curIdx = stageIndexFor(r.status);
+  var isLastStage = curIdx === STAGE_DEFS.length-1;
   return '<div class="stepper">'+STAGE_DEFS.map(function(s,i){
-    var cls = i<curIdx ? "done" : (i===curIdx ? "current" : "upcoming");
+    // The final stage has nothing after it to still be "in progress" toward,
+    // so once reached it's done (✓), not perpetually "current".
+    var cls = (i<curIdx || (i===curIdx && isLastStage)) ? "done" : (i===curIdx ? "current" : "upcoming");
     var hist = lastHistFor(r, s.statuses);
-    var label = (cls==="current" && STATUS[r.status]) ? STATUS[r.status].label : s.label;
+    var label = (i===curIdx && STATUS[r.status]) ? STATUS[r.status].label : s.label;
     var meta = hist ? fmtDate(hist.at)+(hist.by?" · "+esc(hist.by):"") : (cls==="upcoming" ? "Pending" : "");
     var connector = i>0 ? '<div class="step-line '+(i<=curIdx?"done":"")+'"></div>' : "";
     return connector+'<div class="step '+cls+'"><div class="step-dot">'+(cls==="done"?"✓":(i+1))+'</div><div class="step-info"><div class="step-label">'+esc(label)+'</div><div class="step-meta">'+esc(meta)+'</div></div></div>';
