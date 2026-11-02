@@ -593,13 +593,36 @@ function clearInvalidFields(){ $all(".field.invalid").forEach(function(f){ f.cla
 // Blocking duplicate: an existing request for the same order that isn't
 // rejected. A rejected one must NOT block resubmission — the agent is meant
 // to raise a fresh request once the issue that caused the rejection is fixed.
-function findDuplicateRequest(lnVal, webVal){
+//
+// One real exception: a customer with two products on one order can
+// legitimately raise two SEPARATE item-level cancellations over time (item 1
+// today, item 2 next week) — that must not be blocked. It's only a true
+// duplicate when either the existing or the new request covers the WHOLE
+// order, since that already covers everything on it. Two "Specific Item(s)"
+// requests on the same order are allowed through (see
+// findItemLevelSiblings() below for the non-blocking heads-up shown
+// alongside it, since item text isn't structured enough to safely
+// auto-detect the exact same item being re-requested).
+function findDuplicateRequest(lnVal, webVal, newScope){
   lnVal = (lnVal||"").toUpperCase(); webVal = (webVal||"").toUpperCase();
   return state.requests.filter(function(r){
     var rl = (r.lnOrder||"").toUpperCase(), rw = (r.webOrderNumber||"").toUpperCase();
     var matches = (lnVal && rl===lnVal) || (webVal && rw && rw===webVal);
-    return matches && r.status!=="rejected";
+    if(!matches || r.status==="rejected") return false;
+    var bothItemLevel = r.scope==="Specific Item(s)" && newScope==="Specific Item(s)";
+    return !bothItemLevel;
   })[0];
+}
+// Informational only, never blocks: every other still-active item-level
+// request already on this same order, so the agent can glance at what's
+// already been requested before adding another item to the pile.
+function findItemLevelSiblings(lnVal, webVal){
+  lnVal = (lnVal||"").toUpperCase(); webVal = (webVal||"").toUpperCase();
+  return state.requests.filter(function(r){
+    var rl = (r.lnOrder||"").toUpperCase(), rw = (r.webOrderNumber||"").toUpperCase();
+    var matches = (lnVal && rl===lnVal) || (webVal && rw && rw===webVal);
+    return matches && r.status!=="rejected" && r.scope==="Specific Item(s)";
+  });
 }
 // Informational only — surfaced as a dismissible warning, never blocks submit.
 function findRejectedMatch(lnVal, webVal){
@@ -715,8 +738,10 @@ async function submitRequest(){
     if(m2 && m2.every(function(x){ return x.type && x.type!=="Online"; })) fail(webEl);
   }
 
-  // Block a second cancellation request against an order that already has one.
-  var dup = (lnVal||webVal) ? findDuplicateRequest(lnVal, webVal) : null;
+  // Block a second cancellation request against an order that already has
+  // one — except two separate item-level requests on the same order, which
+  // are a legitimate workflow (see findDuplicateRequest's comment).
+  var dup = (lnVal||webVal) ? findDuplicateRequest(lnVal, webVal, scopeEl.value) : null;
   if(dup){
     fail(lnEl);
     if(webVal) fail(webEl);
@@ -1357,14 +1382,23 @@ function wireNewRequest(){
   function checkDuplicateOrderNo(){
     var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
     var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
+    var scopeVal = form.scope ? form.scope.value : "";
     var hint = $("#dupHint");
-    var dup = (lnVal||webVal) ? findDuplicateRequest(lnVal, webVal) : null;
+    var dup = (lnVal||webVal) ? findDuplicateRequest(lnVal, webVal, scopeVal) : null;
     if(dup){
       hint.textContent = "⚠ Already has a cancellation request: "+dup.id+" ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+")";
       hint.classList.add("warn");
       return;
     }
     hint.classList.remove("warn");
+    // Not blocking (see findDuplicateRequest) — just a heads-up so the agent
+    // can check they're not about to re-request the same item a sibling
+    // request already covers.
+    var siblings = (scopeVal==="Specific Item(s)" && (lnVal||webVal)) ? findItemLevelSiblings(lnVal, webVal) : [];
+    if(siblings.length){
+      hint.textContent = "ℹ This order already has "+siblings.length+" item-level request(s) on it: "+siblings.map(function(s){ return s.id; }).join(", ")+". Make sure this isn't the same item.";
+      return;
+    }
     var rej = (lnVal||webVal) ? findRejectedMatch(lnVal, webVal) : null;
     if(rej){
       hint.textContent = "ℹ A previous request for this order ("+rej.id+") was rejected — you can still submit a new one.";
@@ -1496,7 +1530,7 @@ function wireNewRequest(){
       if(etmParsed && etmParsed.total!=null) $("#amountInput").value = etmParsed.total;
     }
   }
-  scopeSel.addEventListener("change", syncScope);
+  scopeSel.addEventListener("change", function(){ syncScope(); checkDuplicateOrderNo(); });
   syncScope();
 
   var etmParseBtn = $("#etmParseBtn");
