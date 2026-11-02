@@ -574,7 +574,7 @@ function fuKpis(caller, q) {
   var remaining = 0, resolved = 0;
   inRange.forEach(function (c) {
     var st = fuResolutionStatusAsOf(c.id, historyByCase, cutoffMs);
-    if (st === "resolved") resolved++; else remaining++; // pending | not_resolved | reopened
+    if (st === "resolved") resolved++; else remaining++; // pending | not_resolved | reopened | pending_frozen
   });
   var total = remaining + resolved; // by construction, per spec
 
@@ -603,7 +603,7 @@ function fuKpis(caller, q) {
 }
 
 /* ---------- notes / contact attempts / resolution workflow ---------- */
-var FU_RESOLUTION_STATUSES = ["pending", "resolved", "not_resolved", "reopened"];
+var FU_RESOLUTION_STATUSES = ["pending", "resolved", "not_resolved", "reopened", "pending_frozen"];
 function fuAddNote(caller, id, text, type) {
   var u = requireCaller(caller);
   var row = findRowById(fuCasesSheet(), id);

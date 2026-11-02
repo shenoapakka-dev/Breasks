@@ -344,12 +344,13 @@ var STATUS = {
   sent_store_refund: {label:"Sent To the Store For Cancellation & Refund", cls:"closed"},
   sent_store_credit: {label:"Sent To the Store For Cancellation & Keep Credit Note", cls:"closed"},
   sent_online: {label:"Sent to Online Team", cls:"sent"},
+  pending_frozen: {label:"Pending - Order Frizzed", cls:"pending"},
   cancelled_refund: {label:"Cancelled with Refund Same Payment Method", cls:"closed"},
   cancelled_credit: {label:"Cancelled With Credit Note", cls:"closed"},
   cancelled_cdf:    {label:"Cancelled CDF", cls:"closed"},
   not_cancelled:    {label:"Not Cancelled (Technical Issue)", cls:"bad"}
 };
-var OPEN_STATUSES = ["new","pending","approved","sent","sent_online"];
+var OPEN_STATUSES = ["new","pending","approved","sent","sent_online","pending_frozen"];
 var CLOSED_STATUSES = ["cancelled_refund","cancelled_credit","cancelled_cdf","sent_store_refund","sent_store_credit"];
 var REJECTED_STATUSES = ["rejected"];
 var NOT_CANCELLED_STATUSES = ["not_cancelled"];
@@ -647,6 +648,7 @@ function parseEtmPaste(raw){
   return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items, customerCode:customerCode, customerName:customerName, orderSegment:orderSegment };
 }
 
+var _submittingRequest = false; // guards against a double Submit click/Enter firing two writes before the first one returns
 async function submitRequest(){
   clearInvalidFields();
   var ORDER_NO_RE = /^[A-Za-z0-9]{9}$/;
@@ -714,12 +716,26 @@ async function submitRequest(){
     customerCode: ($("#customerCodeInput")||{}).value || "", customerName: ($("#customerNameInput")||{}).value || "",
     orderSegment: ($("#orderSegmentInput")||{}).value || ""
   };
+  // All validation above has passed — this is the only point a real write
+  // happens, so it's the only point that needs guarding. A flag alone isn't
+  // enough against a fast double-click (both clicks can fire before the
+  // flag is even read), so the button itself is disabled first and
+  // synchronously, before anything async runs.
+  if(_submittingRequest) return false;
+  _submittingRequest = true;
+  var submitBtn = $('#newReqForm button[type="submit"]');
+  var submitBtnLabel = submitBtn ? submitBtn.textContent : "";
+  if(submitBtn){ submitBtn.disabled = true; submitBtn.textContent = "Submitting…"; }
   try{
     var res = await apiCall("submitRequest", { caller: callerCred(), data: data });
     toast("Cancellation request "+res.id+" submitted.");
     await refreshAll(true);
     return true;
   }catch(e){ toast("Couldn't submit the request: "+e.message); return false; }
+  finally{
+    _submittingRequest = false;
+    if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = submitBtnLabel; }
+  }
 }
 async function updateStatus(id, status, remark){
   var r = state.requests.filter(function(x){ return x.id===id; })[0];
@@ -1541,7 +1557,7 @@ function renderRequests(){
 }
 var STAGE_DEFS = [
   { statuses:["new","pending"], label:"Submitted" },
-  { statuses:["approved","sent","sent_online"], label:"Sent to Store / Online Team" },
+  { statuses:["approved","sent","sent_online","pending_frozen"], label:"Sent to Store / Online Team" },
   // sent_store_refund/sent_store_credit are terminal for Store orders (sending
   // IS closing it), so they belong in the final bucket alongside the three
   // Cancelled outcomes, not the middle "in progress" one.
@@ -1604,9 +1620,9 @@ function renderReqCard(r){
     // managed it needs a separate confirmation (Cancelled / Not Cancelled).
     var stageOpts = [];
     if(r.orderType==="Online"){
-      stageOpts.push("sent_online","cancelled_refund","cancelled_credit","cancelled_cdf","not_cancelled");
+      stageOpts.push("sent_online","pending_frozen","cancelled_refund","cancelled_credit","cancelled_cdf","not_cancelled");
     } else {
-      stageOpts.push("sent_store_refund","sent_store_credit","cancelled_cdf");
+      stageOpts.push("pending_frozen","sent_store_refund","sent_store_credit","cancelled_cdf");
     }
     var allOptKeys = stageOpts.concat(["rejected"]);
     var suggested = allOptKeys.indexOf(r.status)!==-1 ? r.status :
@@ -2189,7 +2205,7 @@ function renderTeam(){
    ======================================================================== */
 var FOLLOWUP_SUPER_ADMIN_USERNAME = "shenoudah";
 function isFollowupSuperAdminClient(){ return state.currentUser && String(state.currentUser.username||"").toLowerCase()===FOLLOWUP_SUPER_ADMIN_USERNAME; }
-var FU_RESOLUTION_LABELS = { pending:"Pending", resolved:"Resolved", not_resolved:"Not Resolved", reopened:"Reopened" };
+var FU_RESOLUTION_LABELS = { pending:"Pending", resolved:"Resolved", not_resolved:"Not Resolved", reopened:"Reopened", pending_frozen:"Pending - Order Frizzed" };
 var FU_CONTACT_OUTCOMES = ["Answered","No Answer","Busy","Wrong Number","Callback Requested","Customer Updated"];
 var FU_DEPARTMENTS = ["Customer Care","Sales","Delivery","Store Operations","Online Operations","Finance"];
 var FU_PAGE_SIZE = 20;
@@ -2455,7 +2471,7 @@ function fuPriorityBadge(p){
   return '<span class="badge '+cls+'">'+esc(p||"—")+'</span>';
 }
 function fuResolutionBadge(s){
-  var map = { pending:["pending","Pending"], resolved:["closed","Resolved"], not_resolved:["bad","Not Resolved"], reopened:["sent","Reopened"] };
+  var map = { pending:["pending","Pending"], resolved:["closed","Resolved"], not_resolved:["bad","Not Resolved"], reopened:["sent","Reopened"], pending_frozen:["pending","Pending - Order Frizzed"] };
   var m = map[s]||["store",s];
   return '<span class="badge '+m[0]+'">'+esc(m[1])+'</span>';
 }
@@ -2549,7 +2565,7 @@ function renderFollowupList(){
     fuDateSelectorHtml()+
   '</div>'+
   '<div class="kpis">'+
-    fuKpiCard("remaining","Remaining", k.remaining, "Pending + Not Resolved + Reopened")+
+    fuKpiCard("remaining","Remaining", k.remaining, "Pending + Not Resolved + Reopened + Frizzed")+
     fuKpiCard("resolved","Resolved", k.resolved, (k.resolvedDuringPeriod!=null?(k.resolvedDuringPeriod+" resolved during period"):""))+
     fuKpiCard("total","Total Unique Cases", k.total, "Remaining + Resolved · "+k.resolutionRate+"% resolution rate")+
     fuKpiCard("overdue","Overdue Follow-ups", k.overdue, "as of the selected cutoff")+
@@ -2806,6 +2822,7 @@ function renderFollowupOpen(){
       '<button class="btn good sm" data-fu-resolve="resolved">Resolved</button>'+
       '<button class="btn bad sm" data-fu-resolve="not_resolved">Not Resolved</button>'+
       '<button class="btn info sm" data-fu-resolve="reopened">Reopened</button>'+
+      '<button class="btn sm" data-fu-resolve="pending_frozen">Pending - Order Frizzed</button>'+
     '</div>'+
     '<div class="opsbox" id="fuResolveBox" hidden style="margin-top:10px">'+
       '<div class="field" id="fuResolveNoteField" style="margin-bottom:10px"><label>Resolution Note (required for Resolved)</label><textarea id="fuResolveNote"></textarea></div>'+
