@@ -4,6 +4,13 @@
  * page can call it with no Google/Claude login from the employee's side.
  */
 var APP_KEY = "daQs4oFH4psq9jc9p8d669jFtm1Q7tBq"; // must match API_KEY in the HTML page
+// Bumped on every change to this file. After pasting a new version into the
+// Apps Script editor and redeploying (Deploy > Manage deployments > edit >
+// New version > Deploy), open the Web App URL directly in a browser (a plain
+// GET) — the JSON response's "version" field confirms the live deployment
+// actually picked up the change, instead of guessing from an "unknown
+// action" error whether the paste/redeploy step was missed.
+var BACKEND_VERSION = "2026-11-03.1";
 // Stage changes (New -> Sent to Store -> Cancelled...), sending the store/
 // online-team email, and editing a request after the fact are restricted to
 // this named list, not the whole Operations/Admin role. Lowercase, compared
@@ -44,7 +51,7 @@ function doPost(e) {
 }
 
 function doGet(e) {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, msg: "Pan Home Cancel Desk API is running" }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, msg: "Pan Home Cancel Desk API is running", version: BACKEND_VERSION }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -84,7 +91,12 @@ function route(body) {
     case "chat_list": return chatList(body.caller, body.withUser);
     case "chat_markRead": return chatMarkRead(body.caller, body.ids);
     case "chat_unreadCount": return chatUnreadCount(body.caller);
-    default: throw new Error("unknown_action");
+    // Includes the live deployment's version in the message itself — if this
+    // ever fires for an action that genuinely exists in this file, it means
+    // the deployment serving requests is running an OLDER version than this
+    // file (the paste-and-redeploy step was missed or didn't take), not a
+    // real bug in the action name.
+    default: throw new Error("unknown_action: " + body.action + " (deployed backend version " + BACKEND_VERSION + ")");
   }
 }
 

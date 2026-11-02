@@ -851,6 +851,7 @@ function buildEmailParts(r, status, remark){
   lines.push("Status:      "+(CLOSED_STATUSES.indexOf(status)>-1 ? STATUS[status].label : (status==="pending"||status==="new") ? "Pending for Review" : "Email sent to "+recipient));
   if(CLOSED_STATUSES.indexOf(status)>-1 && state.currentUser) lines.push("Cancelled By: "+state.currentUser.username);
   lines.push("Date:        "+fmtDate(r.createdAt));
+  lines.push("Reason:      "+(r.reason||"—"));
   lines.push("Amount:      "+fmtMoney(r.amount));
   lines.push("Refund Via:  "+refundLabel(effectiveRefund));
   lines.push("Agent Name:  "+r.agent);
@@ -1942,8 +1943,13 @@ function computeHealthIssues(){
   var byOrder = {};
   state.requests.forEach(function(r){
     if(r.status==="rejected") return;
-    [r.lnOrder, r.webOrderNumber].filter(Boolean).forEach(function(num){
-      var key = num.toUpperCase();
+    // De-duplicate first: when Web Order # and LN Order # were entered as
+    // the exact same value on one request, that single request must only
+    // ever be pushed once per key — otherwise it collides with itself and
+    // gets flagged as its own "duplicate" (the bug behind the empty
+    // "also appears on ." lines seen in testing).
+    var nums = [r.lnOrder, r.webOrderNumber].filter(Boolean).map(function(n){ return n.toUpperCase(); });
+    nums.filter(function(n,i){ return nums.indexOf(n)===i; }).forEach(function(key){
       (byOrder[key] = byOrder[key] || []).push(r);
     });
   });
@@ -1952,6 +1958,7 @@ function computeHealthIssues(){
     if(list.length<2) return;
     list.forEach(function(r){
       var others = list.filter(function(x){ return x.id!==r.id; }).map(function(x){ return x.id; });
+      if(!others.length) return; // nothing left to point at once self-matches are removed
       add(r, "duplicate_order", "Order number \""+key+"\" also appears on "+others.join(", ")+".");
     });
   });
@@ -2773,9 +2780,27 @@ function fuDefaultDueDate(){
   return d;
 }
 function fuDateTimeLocalValue(d){ return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate())+"T"+pad2(d.getHours())+":"+pad2(d.getMinutes()); }
+// One-click due-time presets so setting the follow-up time doesn't mean
+// fighting with the native datetime-local picker every time — each button
+// just fills the same field the picker underneath still edits directly.
+function fuQuickDueOptions(){
+  function at(addDays, h, m){ var d=new Date(); d.setDate(d.getDate()+addDays); d.setHours(h,m,0,0); return d; }
+  return [
+    { label:"In 1 Hour", d:new Date(Date.now()+3600000) },
+    { label:"In 3 Hours", d:new Date(Date.now()+3*3600000) },
+    { label:"Tomorrow 10:00", d:at(1,10,0) },
+    { label:"Tomorrow 14:30", d:at(1,14,30) },
+    { label:"In 3 Days", d:at(3,10,0) }
+  ];
+}
 function renderFollowupNew(){
   var def = fuDefaultDueDate();
   var canAssign = isFollowupSuperAdminClient();
+  // Only Phone, Brief and Due are actually required — everything else here
+  // is either commonly useful (shown directly) or genuinely optional
+  // (tucked under "Advanced settings", collapsed by default, with sensible
+  // defaults already filled in) so the common case is a short form instead
+  // of all thirteen fields visible at once.
   return '<div class="card">'+
     '<div class="btnrow" style="justify-content:space-between;margin-bottom:10px">'+
       '<h2 style="margin:0">New Follow-up</h2>'+
@@ -2783,29 +2808,15 @@ function renderFollowupNew(){
     '</div>'+
     '<form id="fuNewForm">'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Order Number</label><input type="text" id="fuOrderNumber" placeholder="Optional — leave blank if there is no order"></div>'+
         '<div class="field"><label>Caller Phone *</label><input type="tel" id="fuCallerPhone" placeholder="e.g. 0501234567"></div>'+
-      '</div>'+
-      '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Customer Name</label><input type="text" id="fuCustomerName"></div>'+
-        '<div class="field"><label>Complaint Reference</label><input type="text" id="fuComplaintRef" placeholder="Existing complaint # if any"></div>'+
       '</div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Order Number</label><input type="text" id="fuOrderNumber" placeholder="Optional — leave blank if there is no order"></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Case Brief *</label><textarea id="fuBrief" placeholder="What is this follow-up about?"></textarea></div>'+
-      '<div class="field" style="margin-bottom:14px"><label>Notes</label><textarea id="fuNotes"></textarea></div>'+
-      '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Priority</label><select id="fuPriority"><option value="High" selected>High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></div>'+
-        '<div class="field"><label>Department</label><select id="fuDepartment"><option value="">Select…</option>'+
-          FU_DEPARTMENTS.map(function(d2){ return '<option value="'+esc(d2)+'">'+esc(d2)+'</option>'; }).join("")+
-        '</select></div>'+
-      '</div>'+
-      '<div class="field" style="margin-bottom:14px"><label>Follow-up Due (Date/Time) *</label><input type="datetime-local" id="fuDueAt" value="'+fuDateTimeLocalValue(def)+'"><div class="hint">Must be in the future. Default: next 14:30.</div></div>'+
-      '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Alert Window From</label><input type="time" id="fuAlertFrom" value="14:00"></div>'+
-        '<div class="field"><label>Alert Window To</label><input type="time" id="fuAlertTo" value="17:00"></div>'+
-      '</div>'+
-      '<div class="grid cols2" style="margin-bottom:14px">'+
-        '<div class="field"><label>Repeat Interval (minutes)</label><input type="number" id="fuRepeatMin" value="15" min="1"></div>'+
-        '<div class="field"><label>Snooze (minutes)</label><input type="number" id="fuSnoozeMin" value="10" min="1"></div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Priority</label><select id="fuPriority"><option value="High" selected>High</option><option value="Medium">Medium</option><option value="Low">Low</option></select></div>'+
+      '<div class="field" style="margin-bottom:6px"><label>Follow-up Due (Date/Time) *</label><input type="datetime-local" id="fuDueAt" value="'+fuDateTimeLocalValue(def)+'"><div class="hint">Must be in the future.</div></div>'+
+      '<div class="fu-scopebar" style="margin-bottom:14px">'+
+        fuQuickDueOptions().map(function(o){ return '<button type="button" data-fu-due-set="'+fuDateTimeLocalValue(o.d)+'">'+esc(o.label)+'</button>'; }).join("")+
       '</div>'+
       (canAssign ? (
         '<div class="field" style="margin-bottom:14px"><label>Assigned Agent</label><select id="fuAssignedAgent">'+
@@ -2814,15 +2825,38 @@ function renderFollowupNew(){
             .map(function(a){ return '<option value="'+esc(a)+'">'+esc(a)+'</option>'; }).join("")+
         '</select></div>'
       ) : '')+
-      '<div class="field" style="margin-bottom:14px"><label>Source</label><select id="fuSource"><option value="">Select…</option>'+
-        SOURCES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
-      '</select></div>'+
+      '<button type="button" class="linkbtn" id="fuAdvancedToggle" style="margin-bottom:10px">⚙️ Advanced settings (alerts, repeat, snooze, department, notes…)</button>'+
+      '<div id="fuAdvancedBox" hidden>'+
+        '<div class="field" style="margin-bottom:14px"><label>Notes</label><textarea id="fuNotes"></textarea></div>'+
+        '<div class="grid cols2" style="margin-bottom:14px">'+
+          '<div class="field"><label>Complaint Reference</label><input type="text" id="fuComplaintRef" placeholder="Existing complaint # if any"></div>'+
+          '<div class="field"><label>Department</label><select id="fuDepartment"><option value="">Select…</option>'+
+            FU_DEPARTMENTS.map(function(d2){ return '<option value="'+esc(d2)+'">'+esc(d2)+'</option>'; }).join("")+
+          '</select></div>'+
+        '</div>'+
+        '<div class="field" style="margin-bottom:14px"><label>Source</label><select id="fuSource"><option value="">Select…</option>'+
+          SOURCES.map(function(s){ return '<option value="'+esc(s)+'">'+esc(s)+'</option>'; }).join("")+
+        '</select></div>'+
+        '<div class="grid cols2" style="margin-bottom:14px">'+
+          '<div class="field"><label>Alert Window From</label><input type="time" id="fuAlertFrom" value="14:00"></div>'+
+          '<div class="field"><label>Alert Window To</label><input type="time" id="fuAlertTo" value="17:00"></div>'+
+        '</div>'+
+        '<div class="grid cols2" style="margin-bottom:14px">'+
+          '<div class="field"><label>Repeat Interval (minutes)</label><input type="number" id="fuRepeatMin" value="15" min="1"></div>'+
+          '<div class="field"><label>Snooze (minutes)</label><input type="number" id="fuSnoozeMin" value="10" min="1"></div>'+
+        '</div>'+
+      '</div>'+
       '<button class="btn primary" type="submit">Save Follow-up</button>'+
     '</form>'+
   '</div>';
 }
 function wireFollowupNew(){
   var back = $("#fuBackToList"); if(back) back.addEventListener("click", function(){ state.fu.view="list"; render(); });
+  var advToggle = $("#fuAdvancedToggle"), advBox = $("#fuAdvancedBox");
+  if(advToggle && advBox) advToggle.addEventListener("click", function(){ advBox.hidden = !advBox.hidden; });
+  $all("[data-fu-due-set]").forEach(function(btn){
+    btn.addEventListener("click", function(){ var el=$("#fuDueAt"); if(el) el.value = btn.dataset.fuDueSet; });
+  });
   var orderEl = $("#fuOrderNumber");
   if(orderEl) orderEl.addEventListener("input", function(){
     // Link to an existing Cancel-Desk order only on an UNAMBIGUOUS exact
