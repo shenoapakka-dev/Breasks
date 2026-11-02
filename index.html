@@ -216,6 +216,9 @@ table.teamtbl th{text-align:left;color:var(--ink-faint);font-size:11px;text-tran
 table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 .tablewrap{overflow-x:auto}
 
+.copyicon{display:inline-flex;align-items:center;justify-content:center;border:none;background:none;cursor:pointer;padding:0 2px;font-size:12px;line-height:1;color:var(--ink-faint);vertical-align:-1px}
+.copyicon:hover{color:var(--accent)}
+
 /* ---- Follow-up & Reminders ---- */
 .kpi.fu-kpi{cursor:pointer;transition:box-shadow .1s}
 .kpi.fu-kpi.active{box-shadow:0 0 0 2px var(--accent) inset, var(--shadow)}
@@ -292,6 +295,18 @@ function openInETM(kind, value){
     catch(e){ toast("Opening ETM — paste "+value+" into the search."); }
   }
   window.open(ETM_URLS[kind]||ETM_URLS.ln, "_blank");
+}
+// Generic one-click copy for any order/mobile number shown elsewhere in the
+// page (request cards, Follow-up cases) — same clipboard approach as
+// openInETM() above, just without also opening a new tab.
+function copyToClipboard(value, label){
+  if(!value) return;
+  try{ navigator.clipboard && navigator.clipboard.writeText(value); toast("Copied "+(label?label+" ":"")+value+"."); }
+  catch(e){ toast("Couldn't copy automatically — select and copy it manually."); }
+}
+function copyIconBtn(value, label){
+  if(!value) return "";
+  return '<button type="button" class="copyicon" data-copy-value="'+esc(value)+'" data-copy-label="'+esc(label||"")+'" title="Copy">📋</button>';
 }
 function toAED(amount, region){ return (Number(amount)||0) * (AED_PER_UNIT[currencyFor(region)]||1); }
 function fmtCurrency(amount, region){ return currencyFor(region)+" "+fmtMoney(amount); }
@@ -446,7 +461,16 @@ function refreshAll(silent){
     // focused, e.g. right after "Auto-fill from paste" or while just reviewing
     // before submitting. Nothing on that page needs a live repaint anyway (it's
     // a write-only form), so skip it entirely while it's open.
-    var isFormRoute = silent && state.route==="new";
+    // Same reasoning for the Follow-up form/Open Case view (state.fu.view
+    // "new"/"open") — both hold DOM-only drafts (a half-typed brief, a note
+    // being written, a reschedule reason...) that a background repaint would
+    // silently wipe out from under the person typing. This was missing
+    // before and is exactly what made "New Follow-up" look like it kept
+    // failing/clearing itself: the poll fired mid-typing, wiped the form
+    // back to its empty defaults, and the next Save then failed validation
+    // on fields that were never actually empty when the agent filled them.
+    var isFollowupFormRoute = state.route==="followup" && state.fu.view!=="list";
+    var isFormRoute = silent && (state.route==="new" || isFollowupFormRoute);
     if(!isEditing && !isFormRoute) render();
     // Follow-up reminders/chat live in their own overlay roots outside #app
     // (see renderOverlays()), so polling them can never wipe an in-progress
@@ -830,6 +854,7 @@ function buildEmailParts(r, status, remark){
   lines.push("Amount:      "+fmtMoney(r.amount));
   lines.push("Refund Via:  "+refundLabel(effectiveRefund));
   lines.push("Agent Name:  "+r.agent);
+  lines.push("Note:        "+(r.note||"—"));
   lines.push("");
   if(!isWhole && r.items){
     lines.push("ITEM(S) TO CANCEL");
@@ -1048,6 +1073,12 @@ function initGlobalEvents(){
       var srcId = t.dataset.etmSrc;
       var val = srcId ? ($("#"+srcId) ? $("#"+srcId).value.trim() : "") : (t.dataset.etmValue||"");
       openInETM(t.dataset.etm, val);
+      return;
+    }
+    if(t = e.target.closest("[data-copy-value]")){ copyToClipboard(t.dataset.copyValue, t.dataset.copyLabel); return; }
+    if(t = e.target.closest("[data-health-open]")){
+      state.route = "requests"; state.filters.q = t.dataset.healthOpen; state.openCard = t.dataset.healthOpen;
+      render();
       return;
     }
     if(t = e.target.closest("[data-act]")){
@@ -1669,9 +1700,9 @@ function renderReqCard(r){
       '<span class="chev">›</span>'+
     '</div>'+
     '<div class="reqsummary" data-toggle="'+r.id+'">'+
-      '<span>Web: '+(r.webOrderNumber?esc(r.webOrderNumber):"N/A")+'</span>'+
-      '<span>LN: '+esc(r.lnOrder)+'</span>'+
-      '<span>Mobile: '+esc(r.mobile)+'</span>'+
+      '<span>Web: '+(r.webOrderNumber?esc(r.webOrderNumber)+copyIconBtn(r.webOrderNumber,"Web Order #"):"N/A")+'</span>'+
+      '<span>LN: '+esc(r.lnOrder)+copyIconBtn(r.lnOrder,"LN Order #")+'</span>'+
+      '<span>Mobile: '+esc(r.mobile)+copyIconBtn(r.mobile,"Mobile")+'</span>'+
       (r.customerCode ? '<span>'+esc(r.customerName||"Customer")+' ('+esc(r.customerCode)+')</span>' : "")+
       '<span>'+esc(regionLabel)+'</span>'+
       '<span>'+esc(r.reason)+'</span>'+
@@ -1682,9 +1713,9 @@ function renderReqCard(r){
     '<div class="reqbody">'+
       renderStepper(r)+
       '<div class="kv">'+
-        '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber)+' <button type="button" class="linkbtn" data-etm="web" data-etm-value="'+esc(r.webOrderNumber)+'" style="padding:0">↗ ETM</button>':"N/A — Store order")+'</div></div>'+
-        '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+' <button type="button" class="linkbtn" data-etm="ln" data-etm-value="'+esc(r.lnOrder)+'" style="padding:0">↗ ETM</button></div></div>'+
-        '<div><div class="k">Mobile Number</div><div class="vv">'+esc(r.mobile)+'</div></div>'+
+        '<div><div class="k">Web Order #</div><div class="vv">'+(r.webOrderNumber?esc(r.webOrderNumber)+copyIconBtn(r.webOrderNumber,"Web Order #")+' <button type="button" class="linkbtn" data-etm="web" data-etm-value="'+esc(r.webOrderNumber)+'" style="padding:0">↗ ETM</button>':"N/A — Store order")+'</div></div>'+
+        '<div><div class="k">LN Order #</div><div class="vv">'+esc(r.lnOrder)+copyIconBtn(r.lnOrder,"LN Order #")+' <button type="button" class="linkbtn" data-etm="ln" data-etm-value="'+esc(r.lnOrder)+'" style="padding:0">↗ ETM</button></div></div>'+
+        '<div><div class="k">Mobile Number</div><div class="vv">'+esc(r.mobile)+copyIconBtn(r.mobile,"Mobile")+'</div></div>'+
         '<div><div class="k">Customer</div><div class="vv">'+(r.customerCode?esc(r.customerName||"")+' ('+esc(r.customerCode)+')':"—")+'</div></div>'+
         '<div><div class="k">Order Segment</div><div class="vv">'+(r.orderSegment?esc(r.orderSegment):"—")+'</div></div>'+
         '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
@@ -1885,6 +1916,96 @@ async function exportPptxReport(){
 }
 
 /* ---------- DASHBOARD ---------- */
+/* ---------- Health Check: cross-checks every request for data problems an
+   agent/ops person should look at — status/refund mismatches, duplicates,
+   missing fields, mismatched order prefixes, stuck requests. Runs over ALL
+   requests (not the dashboard's own date-scope/filters), since a data
+   problem matters regardless of which period happens to be selected. ---- */
+function computeHealthIssues(){
+  var issues = [];
+  function add(r, code, message){ issues.push({ id:r.id, code:code, message:message, r:r }); }
+
+  // Status says Cancelled/closed one way, but the stored Refund Via still
+  // reads another — the exact bug class a past fix addressed; this catches
+  // it again if it ever recurs (e.g. an old row, or a future regression).
+  state.requests.forEach(function(r){
+    if(CLOSED_STATUSES.indexOf(r.status)===-1) return;
+    var expected = refundMethodForStatus(r.status);
+    if(expected && r.refundMethod !== expected){
+      add(r, "refund_mismatch", "Status is \""+STATUS[r.status].label+"\" but Refund Via is \""+refundLabel(r.refundMethod)+"\" (expected \""+refundLabel(expected)+"\").");
+    }
+  });
+
+  // The same order number (web or LN) on more than one still-active request
+  // — rejected ones don't count, since resubmitting after a rejection is
+  // expected and shouldn't flag as a duplicate.
+  var byOrder = {};
+  state.requests.forEach(function(r){
+    if(r.status==="rejected") return;
+    [r.lnOrder, r.webOrderNumber].filter(Boolean).forEach(function(num){
+      var key = num.toUpperCase();
+      (byOrder[key] = byOrder[key] || []).push(r);
+    });
+  });
+  Object.keys(byOrder).forEach(function(key){
+    var list = byOrder[key];
+    if(list.length<2) return;
+    list.forEach(function(r){
+      var others = list.filter(function(x){ return x.id!==r.id; }).map(function(x){ return x.id; });
+      add(r, "duplicate_order", "Order number \""+key+"\" also appears on "+others.join(", ")+".");
+    });
+  });
+
+  state.requests.forEach(function(r){
+    if(!r.mobile) add(r, "missing_mobile", "No mobile number on file.");
+    if(!r.lnOrder) add(r, "missing_ln", "No LN order number on file.");
+    if(r.orderType==="Online" && !r.webOrderNumber) add(r, "missing_web", "Online order with no Web Order Number.");
+    if(!(Number(r.amount)>0)) add(r, "bad_amount", "Amount is zero or invalid.");
+  });
+
+  // The order number's own prefix (e.g. "BS" = a Store order) disagrees with
+  // the Order Type actually stored on the request — same check already used
+  // to validate the New Request form, reapplied here against existing data.
+  state.requests.forEach(function(r){
+    if(!r.lnOrder || r.lnOrder.length<2) return;
+    var m = PREFIX_MAP[r.lnOrder.slice(0,2).toUpperCase()];
+    if(m && m.every(function(x){ return x.type && x.type!==r.orderType; })){
+      add(r, "prefix_mismatch", "LN Order \""+r.lnOrder+"\" prefix doesn't match the stored Order Type (\""+r.orderType+"\").");
+    }
+  });
+
+  // Still "New" after several days with nobody having moved it along.
+  var STUCK_DAYS = 3;
+  var stuckCutoff = Date.now() - STUCK_DAYS*86400000;
+  state.requests.forEach(function(r){
+    if((r.status==="new"||r.status==="pending") && r.createdAt < stuckCutoff){
+      add(r, "stuck_new", "Still \"New\" after "+STUCK_DAYS+"+ days — needs attention.");
+    }
+  });
+
+  return issues;
+}
+function renderHealthSection(){
+  var issues = computeHealthIssues();
+  if(!issues.length){
+    return '<div class="card"><h2 style="font-size:14.5px">🩺 Health Check</h2>'+
+      '<div class="banner" style="background:var(--good-soft);color:var(--good)">✅ No issues found — every request looks consistent.</div></div>';
+  }
+  var byReq = {};
+  issues.forEach(function(x){ (byReq[x.id] = byReq[x.id] || { r:x.r, msgs:[] }).msgs.push(x.message); });
+  var ids = Object.keys(byReq);
+  var rows = ids.map(function(id){
+    var entry = byReq[id];
+    return '<tr><td>'+esc(id)+'</td><td>'+esc(entry.r.agent)+'</td>'+
+      '<td>'+(STATUS[entry.r.status]?esc(STATUS[entry.r.status].label):esc(entry.r.status))+'</td>'+
+      '<td>'+entry.msgs.map(function(m){ return '<div>⚠️ '+esc(m)+'</div>'; }).join("")+'</td>'+
+      '<td><button class="btn sm" data-health-open="'+esc(id)+'">Open</button></td></tr>';
+  }).join("");
+  return '<div class="card"><h2 style="font-size:14.5px">🩺 Health Check</h2>'+
+    '<div class="banner bad" style="margin-bottom:12px">⚠️ '+ids.length+' request(s), '+issues.length+' issue(s) found — review below.</div>'+
+    '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>Request</th><th>Agent</th><th>Status</th><th>Issue(s)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '</div>';
+}
 function renderDashboard(){
   var scope = state.dashScope;
   var list = scopedRequests(scope);
@@ -1959,6 +2080,7 @@ function renderDashboard(){
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(f.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
     '</div>'+
   '</div>'+
+  (canUpdateStage() ? renderHealthSection() : '')+
   '<div class="kpis">'+
     kpi("Requests", total, scopeLabel(scope))+
     kpi("Cancelled Value", "AED "+fmtMoney(cancelledAmt), closedList.length+" closed request(s), converted to AED")+
@@ -2492,8 +2614,8 @@ function fuTableRows(rows){
   return rows.map(function(r){
     return '<tr>'+
       '<td>FU-'+esc(r.id.split("-").pop())+'</td>'+
-      '<td>'+(r.orderNumber?esc(r.orderNumber):"—")+'</td>'+
-      '<td>'+(r.callerPhone?esc(r.callerPhone):"—")+'</td>'+
+      '<td>'+(r.orderNumber?esc(r.orderNumber)+copyIconBtn(r.orderNumber,"Order #"):"—")+'</td>'+
+      '<td>'+(r.callerPhone?esc(r.callerPhone)+copyIconBtn(r.callerPhone,"Phone"):"—")+'</td>'+
       '<td style="max-width:220px;white-space:normal">'+esc(r.brief)+'</td>'+
       '<td>'+esc(r.assignedAgent)+'</td>'+
       '<td>'+fuPriorityBadge(r.priority)+'</td>'+
@@ -2806,11 +2928,11 @@ function renderFollowupOpen(){
 
   var custCard = '<div class="card"><h2 style="font-size:14.5px">Customer</h2><div class="kv" style="grid-template-columns:1fr">'+
     '<div><div class="k">Name</div><div class="vv">'+(c.customerName?esc(c.customerName):"—")+'</div></div>'+
-    '<div><div class="k">Phone</div><div class="vv">'+(c.callerPhone?esc(c.callerPhone):"—")+'</div></div>'+
+    '<div><div class="k">Phone</div><div class="vv">'+(c.callerPhone?esc(c.callerPhone)+copyIconBtn(c.callerPhone,"Phone"):"—")+'</div></div>'+
     '<div><div class="k">Complaint Reference</div><div class="vv">'+(c.complaintRef?esc(c.complaintRef):"—")+'</div></div>'+
   '</div></div>';
   var orderCard = '<div class="card"><h2 style="font-size:14.5px">Order</h2><div class="kv" style="grid-template-columns:1fr">'+
-    '<div><div class="k">Order Number</div><div class="vv">'+(c.orderNumber?esc(c.orderNumber):"—")+'</div></div>'+
+    '<div><div class="k">Order Number</div><div class="vv">'+(c.orderNumber?esc(c.orderNumber)+copyIconBtn(c.orderNumber,"Order #"):"—")+'</div></div>'+
     '<div><div class="k">Department</div><div class="vv">'+(c.department?esc(c.department):"—")+'</div></div>'+
     '<div><div class="k">Source</div><div class="vv">'+(c.source?esc(c.source):"—")+'</div></div>'+
   '</div></div>';
