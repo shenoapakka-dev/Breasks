@@ -1652,8 +1652,10 @@ function renderRequests(){
     '<div class="empty"><div class="big">🗂️</div><h3 style="margin:0 0 6px">No requests match these filters</h3>'+
     '<p class="sub" style="margin:0">'+(state.requests.length? "Try clearing a filter." : "Once agents submit cancellation requests, they will appear here.")+'</p></div>'
   );
+  var totalAED = list.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
+  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent);
   return '<div class="card">'+
-    '<div class="filterbar" style="margin-bottom:16px">'+
+    '<div class="filterbar" style="margin-bottom:12px">'+
       '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, mobile number, customer, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
       '<div class="field"><label>Status</label><select id="fStatus"><option value="">All</option>'+
         Object.keys(STATUS).filter(function(k){return k!=="pending";}).map(function(k){ return '<option value="'+k+'" '+(state.filters.status===k?"selected":"")+'>'+STATUS[k].label+'</option>'; }).join("")+'</select></div>'+
@@ -1664,6 +1666,9 @@ function renderRequests(){
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.filters.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
       '<button class="btn sm" id="exportBtn">Export CSV</button>'+
     '</div>'+
+    '<p class="sub" style="margin:0 0 14px;font-weight:600;color:var(--ink)">Showing <span class="num">'+list.length+'</span> of '+state.requests.length+' request(s)'+
+      (anyFilterActive && list.length ? ' — total value <span class="num">AED '+fmtMoney(totalAED)+'</span>' : '')+
+    '</p>'+
     '<div class="reqlist">'+rows+'</div>'+
     '</div>';
 }
