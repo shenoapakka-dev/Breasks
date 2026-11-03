@@ -425,6 +425,7 @@ function callerCred(){ return state.currentUser ? { username: state.currentUser.
 /* ---------- state ---------- */
 var state = {
   currentUser:null,
+  authRestoring:false,
   users:[],
   requests:[],
   route:"new",
@@ -519,9 +520,12 @@ async function boot(){
   try{
     var saved = JSON.parse(localStorage.getItem("ph_cancel_session")||"null");
     if(saved && saved.username && saved.password){
+      state.authRestoring = true;
+      render(); // shows "Signing you in…" instead of a bare, apparently-frozen login form
       await doLogin(saved.username, saved.password, true);
+      state.authRestoring = false;
     }
-  }catch(e){}
+  }catch(e){ state.authRestoring = false; }
   render();
 }
 
@@ -812,12 +816,24 @@ async function addNote(id, note){
     await refreshAll(true);
   }catch(e){ toast("Couldn't add the note: "+e.message); }
 }
+// Hard delete — permanently removes the row from the Requests sheet. Admin
+// role only (enforced server-side too); confirmed before firing since this
+// cannot be undone.
+async function deleteRequestAction(id){
+  try{
+    await apiCall("deleteRequest", { caller: callerCred(), id:id });
+    toast("Request "+id+" deleted.");
+    if(state.openCard===id) state.openCard=null;
+    await refreshAll(true);
+  }catch(e){ toast("Couldn't delete: "+e.message); }
+}
 async function saveEdit(id, patch){
   try{
     await apiCall("editRequest", { caller: callerCred(), id:id, patch:patch });
     toast("Request updated.");
     await refreshAll(true);
-  }catch(e){ toast("Couldn't save changes: "+e.message); }
+    return true;
+  }catch(e){ toast("Couldn't save changes: "+e.message); return false; }
 }
 
 /* Builds a pre-filled email (subject + body) for the store and opens it in the
@@ -1130,6 +1146,13 @@ function initGlobalEvents(){
       if(box) box.hidden = !box.hidden;
       return;
     }
+    if(t = e.target.closest("[data-delete-request]")){
+      var delId = t.dataset.deleteRequest;
+      if(window.confirm("Permanently delete request "+delId+"?\n\nThis removes it from the Google Sheet entirely and cannot be undone.")){
+        deleteRequestAction(delId);
+      }
+      return;
+    }
     if(t = e.target.closest("[data-save-edit]")){
       var editId = t.dataset.saveEdit;
       var box2 = document.getElementById("editBox-"+editId);
@@ -1142,7 +1165,16 @@ function initGlobalEvents(){
         retain: box2.querySelector(".editRetain").value,
         note: box2.querySelector(".editNote").value.trim()
       };
-      saveEdit(editId, patch);
+      // Visible feedback the save is actually in flight — without this, a
+      // slow network made it look like "Save Changes" silently did nothing
+      // (the actual complaint), even on a run where it succeeds a second
+      // later.
+      var saveBtn = t, origSaveLabel = saveBtn.textContent;
+      saveBtn.disabled = true; saveBtn.textContent = "Saving…";
+      saveEdit(editId, patch).then(function(ok){
+        if(ok){ box2.hidden = true; }
+        else { saveBtn.disabled = false; saveBtn.textContent = origSaveLabel; }
+      });
       return;
     }
     if(t = e.target.closest("[data-toggle]")){
@@ -1206,7 +1238,9 @@ function renderAuth(){
     '<div class="brand"><span class="mark">PH</span><span>Pan Home</span></div>'+
     '<div class="tag">Cancellation Request Desk</div>'+
     '<div class="card">'+
-    renderLoginForm()+
+    (state.authRestoring
+      ? '<p class="sub" style="text-align:center;margin:10px 0">⏳ Signing you in…</p>'
+      : renderLoginForm())+
     '<div class="formerr" id="authErr"></div>'+
     '</div></div></div>';
 }
@@ -1221,7 +1255,19 @@ function renderLoginForm(){
 }
 function wireAuth(){
   var lf = $("#loginForm");
-  if(lf) lf.addEventListener("submit", function(e){ e.preventDefault(); doLogin(lf.username.value, lf.password.value, false, lf.remember.checked); });
+  if(lf) lf.addEventListener("submit", function(e){
+    e.preventDefault();
+    var btn = lf.querySelector('button[type="submit"]');
+    var origLabel = btn ? btn.textContent : "";
+    if(btn){ btn.disabled = true; btn.textContent = "Logging in…"; }
+    doLogin(lf.username.value, lf.password.value, false, lf.remember.checked).finally(function(){
+      // On success this form is gone (replaced by the app shell) — the
+      // re-query below is a no-op then. On failure it's still here, so the
+      // button needs to come back so the agent can retry.
+      var stillHere = document.getElementById("loginForm");
+      if(stillHere===lf && btn){ btn.disabled = false; btn.textContent = origLabel; }
+    });
+  });
 }
 
 /* ---------- SHELL ---------- */
@@ -1711,6 +1757,9 @@ function renderReqCard(r){
     '<textarea class="closedNote" placeholder="e.g. Customer called again to confirm."></textarea>'+
     '<div class="btnrow" style="margin-top:10px"><button class="btn sm" data-note="'+r.id+'">Add Note</button></div></div>' : '';
   var editBtn = canStage ? '<button type="button" class="btn sm" data-edit-toggle="'+r.id+'" style="margin-bottom:10px">✏️ Edit</button>' : '';
+  // Hard delete, not a status change — permanently removes the row from the
+  // sheet. Admin-only, matching the backend's own gate.
+  var deleteBtn = isAdmin() ? '<button type="button" class="btn bad sm" data-delete-request="'+r.id+'" style="margin-bottom:10px">🗑️ Delete</button>' : '';
   var editBox = canStage ? '<div class="opsbox" id="editBox-'+r.id+'" hidden>'+
     '<div class="grid cols2" style="margin-bottom:10px">'+
       '<div class="field"><label>Mobile Number</label><input type="tel" class="editMobile" value="'+esc(r.mobile)+'"></div>'+
@@ -1766,7 +1815,7 @@ function renderReqCard(r){
       '<div class="note-box">'+esc(r.note)+'</div>'+
       '<div style="color:var(--ink-faint);text-transform:uppercase;font-size:10.5px;font-weight:700;letter-spacing:.03em;margin:12px 0 6px">History</div>'+
       '<div class="history">'+hist+'</div>'+
-      emailBtn+quickCancelBtns+editBtn+
+      emailBtn+quickCancelBtns+editBtn+deleteBtn+
       actions+
       editBox+
       noteBox+
@@ -2047,6 +2096,53 @@ function renderHealthSection(){
     '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>Request</th><th>Agent</th><th>Status</th><th>Issue(s)</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
   '</div>';
 }
+// Clicking any chart/breakdown item (data-chart-filter) sets a
+// state.dashFilters key — this surfaces the actual matching requests that
+// drill-down represents, instead of leaving the click as a read-only
+// highlight with no way to see or export what it actually matched.
+function dashFiltersActive(){
+  var f = state.dashFilters;
+  return !!(f.region||f.status||f.orderType||f.source||f.agent||f.reason);
+}
+var DASH_DRILLDOWN_SHOWN = 200;
+function renderDashDrilldown(list){
+  if(!dashFiltersActive()) return '';
+  var shown = list.slice(0, DASH_DRILLDOWN_SHOWN);
+  var rows = shown.map(function(r){
+    var orderNo = r.webOrderNumber || r.lnOrder || "—";
+    return '<tr><td>'+esc(r.id)+'</td><td>'+esc(orderNo)+'</td><td>'+(r.customerName?esc(r.customerName):"—")+'</td>'+
+      '<td class="num">'+fmtCurrency(r.amount,r.region)+'</td><td>'+(STATUS[r.status]?esc(STATUS[r.status].label):esc(r.status))+'</td>'+
+      '<td>'+esc(r.agent)+'</td></tr>';
+  }).join("");
+  return '<div class="card">'+
+    '<div class="btnrow" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap">'+
+      '<h2 style="margin:0;font-size:15px">Matching Requests ('+list.length+')</h2>'+
+      '<button class="btn sm" id="dashDrillExportBtn">📊 Export This List to Excel</button>'+
+    '</div>'+
+    '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>ID</th><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Agent</th></tr></thead><tbody>'+
+      (rows || '<tr><td colspan="6"><p class="sub">No matching requests.</p></td></tr>')+
+    '</tbody></table></div>'+
+    (list.length>DASH_DRILLDOWN_SHOWN ? ('<p class="sub" style="margin-top:8px">Showing the first '+DASH_DRILLDOWN_SHOWN+' — the Excel export includes all '+list.length+'.</p>') : '')+
+  '</div>';
+}
+function exportDashDrilldownXlsx(){
+  if(typeof XLSX==="undefined"){ toast("Excel library didn't load — check your connection and try again."); return; }
+  var list = scopedRequests(state.dashScope); // same scope+filters the drill-down card itself shows
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status"];
+  var rows = [cols].concat(list.map(function(r){
+    return cols.map(function(c){
+      if(c==="createdAt") return fmtDate(r.createdAt);
+      if(c==="status") return STATUS[r.status] ? STATUS[r.status].label : r.status;
+      if(c==="currency") return currencyFor(r.region);
+      if(c==="amountAED") return round2(toAED(r.amount, r.region));
+      return r[c]==null ? "" : r[c];
+    });
+  }));
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Matching Requests");
+  XLSX.writeFile(wb, "PanHome_Dashboard_Filtered.xlsx");
+  toast("Excel exported — "+list.length+" request(s).");
+}
 function renderDashboard(){
   var scope = state.dashScope;
   var list = scopedRequests(scope);
@@ -2066,12 +2162,19 @@ function renderDashboard(){
   var byRegion = countBy(list, function(r){ return (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region; });
   var byRegionAmt = {};
   list.forEach(function(r){ var k=(REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label||r.region; byRegionAmt[k]=(byRegionAmt[k]||0)+toAED(r.amount, r.region); });
+  // customerCode only exists when the agent pasted the ETM order details
+  // (parseEtmPaste extracts it); a manually-typed request never has one, so
+  // keying purely on customerCode left "Top Customers" empty almost always.
+  // Mobile number is a required field on every request regardless of how it
+  // was entered, so it's a reliable fallback identity — a customer is still
+  // the same customer whether or not the agent happened to paste from ETM.
   var byCustomer = {};
   list.forEach(function(r){
-    if(!r.customerCode) return;
-    if(!byCustomer[r.customerCode]) byCustomer[r.customerCode] = { name:r.customerName||r.customerCode, count:0, amount:0 };
-    byCustomer[r.customerCode].count++;
-    byCustomer[r.customerCode].amount += toAED(r.amount, r.region);
+    var key = r.customerCode || mobileCore(r.mobile);
+    if(!key) return;
+    if(!byCustomer[key]) byCustomer[key] = { name:r.customerName||(r.customerCode?r.customerCode:r.mobile), count:0, amount:0 };
+    byCustomer[key].count++;
+    byCustomer[key].amount += toAED(r.amount, r.region);
   });
   var byCustomerCount = {}, byCustomerAmt = {};
   Object.keys(byCustomer).forEach(function(code){
@@ -2121,6 +2224,7 @@ function renderDashboard(){
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(f.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
     '</div>'+
   '</div>'+
+  renderDashDrilldown(list)+
   (canUpdateStage() ? renderHealthSection() : '')+
   '<div class="kpis">'+
     kpi("Requests", total, scopeLabel(scope))+
@@ -2142,7 +2246,7 @@ function renderDashboard(){
     chartCard("Retain vs Not Retain", donutSVG(toPairs(byRetain),{"Retained":"good","Not Retained":"bad"}))+
   '</div>'+
   chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Rejected — Returned to Agent":"bad","Not Cancelled (Technical Issue)":"bad","Approved & Sent to the Store":"good","Sent to the Store":"info","Sent To the Store For Cancellation & Refund":"info","Sent To the Store For Cancellation & Keep Credit Note":"cat-6","Sent to Online Team":"cat-2","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"},"status",statusKeyForLabel))+
-  '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+' — click a reason to filter everything below by it.</p>'+ hbarList(byReason,8,null,"reason") +'</div>'+
+  '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+' — click a reason to filter everything below by it.</p>'+ hbarList(byReason,8,null,"reason",null,true) +'</div>'+
   '<div class="chartgrid">'+
     chartCard("By Region — count", hbarList(byRegion,6,null,"region",regionCodeForLabel))+
     chartCard("By Region — value (AED)", hbarList(byRegionAmt,6,function(v){return "AED "+fmtMoney(v);},"region",regionCodeForLabel))+
@@ -2166,20 +2270,25 @@ function statusKeyForLabel(label){
 
 // filterKey/toValue (optional) make each row clickable, applying it as a
 // Dashboard filter (toggles off on a second click) — turns a breakdown
-// into a drill-down instead of a read-only picture.
-function hbarList(m, limit, fmt, filterKey, toValue){
+// into a drill-down instead of a read-only picture. showSharePct (optional)
+// appends each row's share of the TOTAL across every key in `m` (not just
+// the visible top `limit`), e.g. "42 (18%)".
+function hbarList(m, limit, fmt, filterKey, toValue, showSharePct){
   var pairs = toPairs(m).slice(0, limit||10);
   if(!pairs.length) return '<p class="sub">No data yet.</p>';
   var max = Math.max.apply(null, pairs.map(function(p){return p.value;}));
+  var grandTotal = showSharePct ? Object.keys(m).reduce(function(s,k){ return s+m[k]; },0) : 0;
   return '<div class="hbarlist">'+ pairs.map(function(p){
     var pct = max? Math.max(4, Math.round(p.value/max*100)) : 0;
     var val = toValue ? toValue(p.label) : p.label;
     var clickable = filterKey && val;
     var active = clickable && state.dashFilters[filterKey]===val;
     var attrs = clickable ? ' data-chart-filter="'+esc(filterKey)+'" data-chart-value="'+esc(val)+'" style="cursor:pointer"' : '';
+    var displayVal = fmt ? fmt(p.value) : p.value;
+    if(showSharePct && grandTotal) displayVal = displayVal+' ('+Math.round(p.value/grandTotal*100)+'%)';
     return '<div class="hbarrow'+(active?" active":"")+'"'+attrs+'><div class="lbl" title="'+esc(p.label)+'">'+esc(p.label)+'</div>'+
       '<div class="hbartrack"><div class="hbarfill" style="width:'+pct+'%"></div></div>'+
-      '<div class="v num">'+(fmt?fmt(p.value):p.value)+'</div></div>';
+      '<div class="v num">'+displayVal+'</div></div>';
   }).join("") +'</div>';
 }
 
@@ -2311,6 +2420,8 @@ function wireDashboard(){
   var xlsxBtn = $("#exportXlsxBtn"), pptxBtn = $("#exportPptxBtn");
   if(xlsxBtn) xlsxBtn.addEventListener("click", function(){ exportXlsxReport(); });
   if(pptxBtn) pptxBtn.addEventListener("click", function(){ exportPptxReport(); });
+  var drillBtn = $("#dashDrillExportBtn");
+  if(drillBtn) drillBtn.addEventListener("click", function(){ exportDashDrilldownXlsx(); });
 }
 
 /* ---------- ACCOUNT ---------- */

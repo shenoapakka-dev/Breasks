@@ -10,7 +10,7 @@ var APP_KEY = "daQs4oFH4psq9jc9p8d669jFtm1Q7tBq"; // must match API_KEY in the H
 // GET) — the JSON response's "version" field confirms the live deployment
 // actually picked up the change, instead of guessing from an "unknown
 // action" error whether the paste/redeploy step was missed.
-var BACKEND_VERSION = "2026-11-03.1";
+var BACKEND_VERSION = "2026-11-03.2";
 // Stage changes (New -> Sent to Store -> Cancelled...), sending the store/
 // online-team email, and editing a request after the fact are restricted to
 // this named list, not the whole Operations/Admin role. Lowercase, compared
@@ -67,6 +67,7 @@ function route(body) {
     case "changePassword": return changePassword(body.caller.username, body.caller.password, body.next);
     case "adminSetRole": requireRole(body.caller, ["admin"]); return adminSetRole(body.target, body.role);
     case "adminResetPassword": requireRole(body.caller, ["admin"]); return adminResetPassword(body.target);
+    case "deleteRequest": requireRole(body.caller, ["admin"]); return deleteRequest(body.id);
 
     // Follow-up & Reminders. Each handler re-verifies the caller and (for
     // anything touching a specific case) re-checks ownership itself — see
@@ -340,6 +341,21 @@ function editRequest(id, patch, byUsername) {
       history.push({ status: data[i][13], by: byUsername, at: new Date().toISOString(), remark: "Edited: " + changed.join(", ") });
       sh.getRange(row, 15).setValue(new Date().toISOString());
       sh.getRange(row, 16).setValue(JSON.stringify(history));
+      return { ok: true };
+    }
+  }
+  throw new Error("not_found");
+}
+
+// Permanently removes the row from the Requests sheet — this is a hard
+// delete, not a status change, and admin-only (gated in route()). There is
+// no undo once this runs; the row and its full history go with it.
+function deleteRequest(id) {
+  var sh = requestsSheet();
+  var data = sh.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === id) {
+      sh.deleteRow(i + 1);
       return { ok: true };
     }
   }
