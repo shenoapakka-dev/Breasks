@@ -447,7 +447,7 @@ var state = {
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:""},
   openCard:null,
-  filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"", minAED:"", maxAED:"", bucket:"" },
+  filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"", retain:"", minAED:"", maxAED:"", bucket:"" },
   fu: null // set below once fuInitialState() is defined (function declarations are hoisted, so this is fine)
 };
 state.fu = fuInitialState();
@@ -1029,6 +1029,7 @@ function matchesCoreFilters(r, f){
   if(f.region && r.region!==f.region) return false;
   if(f.agent && r.agent!==f.agent) return false;
   if(f.refundMethod && r.refundMethod!==f.refundMethod) return false;
+  if(f.retain && r.retain!==f.retain) return false;
   if(f.minAED!=="" && f.minAED!=null && toAED(r.amount,r.region) < Number(f.minAED)) return false;
   if(f.maxAED!=="" && f.maxAED!=null && toAED(r.amount,r.region) > Number(f.maxAED)) return false;
   if(f.q){
@@ -1741,7 +1742,7 @@ function renderRequests(){
     '<p class="sub" style="margin:0">'+(state.requests.length? "Try clearing a filter." : "Once agents submit cancellation requests, they will appear here.")+'</p></div>'
   );
   var totalAED = list.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
-  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent||state.filters.refundMethod||state.filters.minAED||state.filters.maxAED||state.filters.bucket);
+  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent||state.filters.refundMethod||state.filters.retain||state.filters.minAED||state.filters.maxAED||state.filters.bucket);
   return '<div class="card">'+
     renderRequestsSummary()+
     '<div class="filterbar" style="margin-bottom:12px">'+
@@ -1753,6 +1754,8 @@ function renderRequests(){
         REGIONS.map(function(r){ return '<option value="'+r.code+'" '+(state.filters.region===r.code?"selected":"")+'>'+r.code+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Refund Method</label><select id="fRefund"><option value="">All</option>'+
         REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'" '+(state.filters.refundMethod===m?"selected":"")+'>'+esc(refundLabel(m))+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Retain / Not Retain</label><select id="fRetain"><option value="">All</option>'+
+        RETAIN_OPTIONS.map(function(x){ return '<option value="'+esc(x)+'" '+(state.filters.retain===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Agent</label><select id="fAgent"><option value="">All</option>'+
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.filters.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="number" id="fMinAED" min="0" step="1" placeholder="e.g. 1000" value="'+esc(state.filters.minAED)+'"></div>'+
@@ -1934,6 +1937,7 @@ function wireRequests(){
   $("#fType").addEventListener("change", function(){ state.filters.orderType=this.value; render(); });
   $("#fRegion").addEventListener("change", function(){ state.filters.region=this.value; render(); });
   $("#fRefund").addEventListener("change", function(){ state.filters.refundMethod=this.value; render(); });
+  $("#fRetain").addEventListener("change", function(){ state.filters.retain=this.value; render(); });
   $("#fAgent").addEventListener("change", function(){ state.filters.agent=this.value; render(); });
   $("#fMinAED").addEventListener("input", function(){ state.filters.minAED=this.value; render(); });
   $("#fMaxAED").addEventListener("input", function(){ state.filters.maxAED=this.value; render(); });
