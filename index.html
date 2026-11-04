@@ -447,7 +447,7 @@ var state = {
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:""},
   openCard:null,
-  filters:{ q:"", status:"", orderType:"", region:"", agent:"" },
+  filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"" },
   fu: null // set below once fuInitialState() is defined (function declarations are hoisted, so this is fine)
 };
 state.fu = fuInitialState();
@@ -1021,6 +1021,7 @@ function filteredRequests(){
     if(f.orderType && r.orderType!==f.orderType) return false;
     if(f.region && r.region!==f.region) return false;
     if(f.agent && r.agent!==f.agent) return false;
+    if(f.refundMethod && r.refundMethod!==f.refundMethod) return false;
     if(f.q){
       var q=f.q.toLowerCase();
       var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items,r.customerCode,r.customerName].join(" ").toLowerCase();
@@ -1681,7 +1682,7 @@ function renderRequests(){
     '<p class="sub" style="margin:0">'+(state.requests.length? "Try clearing a filter." : "Once agents submit cancellation requests, they will appear here.")+'</p></div>'
   );
   var totalAED = list.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
-  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent);
+  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent||state.filters.refundMethod);
   return '<div class="card">'+
     '<div class="filterbar" style="margin-bottom:12px">'+
       '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, mobile number, customer, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
@@ -1690,6 +1691,8 @@ function renderRequests(){
       '<div class="field"><label>Order Type</label><select id="fType"><option value="">All</option><option '+(state.filters.orderType==="Store"?"selected":"")+'>Store</option><option '+(state.filters.orderType==="Online"?"selected":"")+'>Online</option></select></div>'+
       '<div class="field"><label>Region</label><select id="fRegion"><option value="">All</option>'+
         REGIONS.map(function(r){ return '<option value="'+r.code+'" '+(state.filters.region===r.code?"selected":"")+'>'+r.code+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Refund Method</label><select id="fRefund"><option value="">All</option>'+
+        REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'" '+(state.filters.refundMethod===m?"selected":"")+'>'+esc(refundLabel(m))+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Agent</label><select id="fAgent"><option value="">All</option>'+
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.filters.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
       '<button class="btn sm" id="exportBtn">Export CSV</button>'+
@@ -1863,6 +1866,7 @@ function wireRequests(){
   $("#fStatus").addEventListener("change", function(){ state.filters.status=this.value; render(); });
   $("#fType").addEventListener("change", function(){ state.filters.orderType=this.value; render(); });
   $("#fRegion").addEventListener("change", function(){ state.filters.region=this.value; render(); });
+  $("#fRefund").addEventListener("change", function(){ state.filters.refundMethod=this.value; render(); });
   $("#fAgent").addEventListener("change", function(){ state.filters.agent=this.value; render(); });
 }
 function exportCsv(){
