@@ -447,7 +447,7 @@ var state = {
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:""},
   openCard:null,
-  filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"" },
+  filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"", minAED:"", maxAED:"", bucket:"" },
   fu: null // set below once fuInitialState() is defined (function declarations are hoisted, so this is fine)
 };
 state.fu = fuInitialState();
@@ -1014,22 +1014,50 @@ function mobileMatches(stored, query){
   if(!qc) return false;
   return sc.indexOf(qc)!==-1 || qc.indexOf(sc)!==-1;
 }
+// Groupings the Requests-page summary cards click into (see
+// renderRequestsSummary()) — independent of the exact-status dropdown, which
+// still works the same as before.
+var STATUS_BUCKETS = {
+  "new": ["new","pending"],
+  open: OPEN_STATUSES,
+  closed: CLOSED_STATUSES,
+  rejected: REJECTED_STATUSES.concat(NOT_CANCELLED_STATUSES)
+};
+function matchesCoreFilters(r, f){
+  if(f.status && (r.status==="pending"?"new":r.status)!==f.status) return false;
+  if(f.orderType && r.orderType!==f.orderType) return false;
+  if(f.region && r.region!==f.region) return false;
+  if(f.agent && r.agent!==f.agent) return false;
+  if(f.refundMethod && r.refundMethod!==f.refundMethod) return false;
+  if(f.minAED!=="" && f.minAED!=null && toAED(r.amount,r.region) < Number(f.minAED)) return false;
+  if(f.maxAED!=="" && f.maxAED!=null && toAED(r.amount,r.region) > Number(f.maxAED)) return false;
+  if(f.q){
+    var q=f.q.toLowerCase();
+    var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items,r.customerCode,r.customerName].join(" ").toLowerCase();
+    var textMatch = hay.indexOf(q)!==-1;
+    var phoneMatch = /\d/.test(f.q) ? mobileMatches(r.mobile, f.q) : false;
+    if(!textMatch && !phoneMatch) return false;
+  }
+  return true;
+}
 function filteredRequests(){
   var f = state.filters;
-  return state.requests.slice().sort(function(a,b){ return b.createdAt - a.createdAt; }).filter(function(r){
-    if(f.status && (r.status==="pending"?"new":r.status)!==f.status) return false;
-    if(f.orderType && r.orderType!==f.orderType) return false;
-    if(f.region && r.region!==f.region) return false;
-    if(f.agent && r.agent!==f.agent) return false;
-    if(f.refundMethod && r.refundMethod!==f.refundMethod) return false;
-    if(f.q){
-      var q=f.q.toLowerCase();
-      var hay=[r.id,r.webOrderNumber,r.lnOrder,r.mobile,r.note,r.agent,r.items,r.customerCode,r.customerName].join(" ").toLowerCase();
-      var textMatch = hay.indexOf(q)!==-1;
-      var phoneMatch = /\d/.test(f.q) ? mobileMatches(r.mobile, f.q) : false;
-      if(!textMatch && !phoneMatch) return false;
-    }
+  return state.requests.filter(function(r){
+    if(!matchesCoreFilters(r, f)) return false;
+    if(f.bucket && STATUS_BUCKETS[f.bucket] && STATUS_BUCKETS[f.bucket].indexOf(r.status)===-1) return false;
     return true;
+  }).sort(function(a,b){
+    // Requests delivering soon (still open) float to the top, soonest/most
+    // overdue delivery first — that's the one the store needs to beat.
+    // Everything else keeps the normal newest-submitted-first order.
+    var au=isDeliveryUrgent(a), bu=isDeliveryUrgent(b);
+    if(au && !bu) return -1;
+    if(!au && bu) return 1;
+    if(au && bu){
+      var ad=new Date(a.deliveryDate+"T00:00:00").getTime(), bd=new Date(b.deliveryDate+"T00:00:00").getTime();
+      if(ad!==bd) return ad-bd;
+    }
+    return b.createdAt - a.createdAt;
   });
 }
 function countBy(list, fn){ var m={}; list.forEach(function(r){ var k=fn(r); m[k]=(m[k]||0)+1; }); return m; }
@@ -1118,6 +1146,12 @@ function initGlobalEvents(){
     }
     if(t = e.target.closest("#dashDrillToggle")){
       state.dashDrilldownOpen = !state.dashDrilldownOpen;
+      render();
+      return;
+    }
+    if(t = e.target.closest("[data-req-bucket]")){
+      var bk = t.dataset.reqBucket;
+      state.filters.bucket = (state.filters.bucket===bk) ? "" : bk;
       render();
       return;
     }
@@ -1675,6 +1709,31 @@ function statusBadge(s){ var d=STATUS[s]||STATUS.pending; return '<span class="b
 function typeBadge(t){ return '<span class="badge '+(t==="Online"?"online":"store")+'">'+esc(t)+'</span>'; }
 function retainBadge(r){ return '<span class="badge '+(r==="Retained"?"retained":"notretained")+'">'+esc(r)+'</span>'; }
 
+// Bucket counts use every filter EXCEPT the bucket itself (so each card
+// shows "how many would be in this bucket given the other active filters",
+// the same KPI-click-to-drill pattern already used on the Dashboard) —
+// clicking one of these is an alternative to the exact-status dropdown, not
+// mutually exclusive with it.
+function renderRequestsSummary(){
+  var f = state.filters;
+  var base = state.requests.filter(function(r){ return matchesCoreFilters(r, f); });
+  var counts = { "new":0, open:0, closed:0, rejected:0 };
+  base.forEach(function(r){
+    Object.keys(STATUS_BUCKETS).forEach(function(k){ if(STATUS_BUCKETS[k].indexOf(r.status)>-1) counts[k]++; });
+  });
+  var active = f.bucket||"";
+  function card(key,label,val){
+    return '<div class="kpi fu-kpi'+(active===key?" active":"")+'" data-req-bucket="'+key+'">'+
+      '<div class="lbl">'+label+'</div><div class="val num" data-countup-raw="'+val+'" data-countup-decimals="0">'+val+'</div></div>';
+  }
+  return '<div class="kpis" style="margin-bottom:14px">'+
+    card("","Total",base.length)+
+    card("new","New",counts["new"])+
+    card("open","In Progress",counts.open)+
+    card("closed","Cancelled",counts.closed)+
+    card("rejected","Rejected / Not Cancelled",counts.rejected)+
+  '</div>';
+}
 function renderRequests(){
   var list = filteredRequests();
   var rows = list.length ? list.map(renderReqCard).join("") : (
@@ -1682,8 +1741,9 @@ function renderRequests(){
     '<p class="sub" style="margin:0">'+(state.requests.length? "Try clearing a filter." : "Once agents submit cancellation requests, they will appear here.")+'</p></div>'
   );
   var totalAED = list.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
-  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent||state.filters.refundMethod);
+  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent||state.filters.refundMethod||state.filters.minAED||state.filters.maxAED||state.filters.bucket);
   return '<div class="card">'+
+    renderRequestsSummary()+
     '<div class="filterbar" style="margin-bottom:12px">'+
       '<div class="field grow"><label>Search</label><input type="text" id="fQ" placeholder="ID, order number, mobile number, customer, note, agent…" value="'+esc(state.filters.q)+'"></div>'+
       '<div class="field"><label>Status</label><select id="fStatus"><option value="">All</option>'+
@@ -1695,6 +1755,8 @@ function renderRequests(){
         REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'" '+(state.filters.refundMethod===m?"selected":"")+'>'+esc(refundLabel(m))+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Agent</label><select id="fAgent"><option value="">All</option>'+
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.filters.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="number" id="fMinAED" min="0" step="1" placeholder="e.g. 1000" value="'+esc(state.filters.minAED)+'"></div>'+
+      '<div class="field" style="width:130px"><label>Max Value (AED)</label><input type="number" id="fMaxAED" min="0" step="1" placeholder="No limit" value="'+esc(state.filters.maxAED)+'"></div>'+
       '<button class="btn sm" id="exportBtn">Export CSV</button>'+
     '</div>'+
     '<p class="sub" style="margin:0 0 14px;font-weight:600;color:var(--ink)">Showing <span class="num">'+list.length+'</span> of '+state.requests.length+' request(s)'+
@@ -1862,12 +1924,19 @@ function renderReqCard(r){
     '</div></div>';
 }
 function wireRequests(){
+  // Count-up only replays when the filter set actually changed since the
+  // last paint — same reasoning as the Dashboard's version (see
+  // wireDashboard()): not on every ~12s background poll.
+  var reqSig = JSON.stringify(state.filters);
+  if(state._reqAnimSig !== reqSig){ state._reqAnimSig = reqSig; playDashboardCountUp(); }
   $("#fQ").addEventListener("input", function(){ state.filters.q=this.value; render(); });
   $("#fStatus").addEventListener("change", function(){ state.filters.status=this.value; render(); });
   $("#fType").addEventListener("change", function(){ state.filters.orderType=this.value; render(); });
   $("#fRegion").addEventListener("change", function(){ state.filters.region=this.value; render(); });
   $("#fRefund").addEventListener("change", function(){ state.filters.refundMethod=this.value; render(); });
   $("#fAgent").addEventListener("change", function(){ state.filters.agent=this.value; render(); });
+  $("#fMinAED").addEventListener("input", function(){ state.filters.minAED=this.value; render(); });
+  $("#fMaxAED").addEventListener("input", function(){ state.filters.maxAED=this.value; render(); });
 }
 function exportCsv(){
   var list = filteredRequests();
