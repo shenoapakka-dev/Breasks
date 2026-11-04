@@ -1111,6 +1111,12 @@ function initGlobalEvents(){
     if(t = e.target.closest("[data-chart-filter]")){
       var ck = t.dataset.chartFilter, cv = t.dataset.chartValue;
       state.dashFilters[ck] = (state.dashFilters[ck]===cv) ? "" : cv;
+      state.dashDrilldownOpen = false; // a new drill-down context starts collapsed
+      render();
+      return;
+    }
+    if(t = e.target.closest("#dashDrillToggle")){
+      state.dashDrilldownOpen = !state.dashDrilldownOpen;
       render();
       return;
     }
@@ -2136,24 +2142,36 @@ function dashFiltersActive(){
   return !!(f.region||f.status||f.orderType||f.source||f.agent||f.reason);
 }
 var DASH_DRILLDOWN_SHOWN = 200;
+// Collapsed by default every time a new drill-down appears (a fresh chart
+// click) — the table only shows once the agent explicitly expands it, so
+// clicking a chart segment doesn't instantly dump a long table onto the
+// page. Toggling dashFilters (see the global click handler) resets this
+// back to collapsed, since that's a new drill-down context.
 function renderDashDrilldown(list){
   if(!dashFiltersActive()) return '';
-  var shown = list.slice(0, DASH_DRILLDOWN_SHOWN);
-  var rows = shown.map(function(r){
-    var orderNo = r.webOrderNumber || r.lnOrder || "—";
-    return '<tr><td>'+esc(r.id)+'</td><td>'+esc(orderNo)+'</td><td>'+(r.customerName?esc(r.customerName):"—")+'</td>'+
-      '<td class="num">'+fmtCurrency(r.amount,r.region)+'</td><td>'+(STATUS[r.status]?esc(STATUS[r.status].label):esc(r.status))+'</td>'+
-      '<td>'+esc(r.agent)+'</td></tr>';
-  }).join("");
-  return '<div class="card">'+
-    '<div class="btnrow" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap">'+
-      '<h2 style="margin:0;font-size:15px">Matching Requests ('+list.length+')</h2>'+
-      '<button class="btn sm" id="dashDrillExportBtn">📊 Export This List to Excel</button>'+
-    '</div>'+
-    '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>ID</th><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Agent</th></tr></thead><tbody>'+
+  var open = !!state.dashDrilldownOpen;
+  var body = '';
+  if(open){
+    var shown = list.slice(0, DASH_DRILLDOWN_SHOWN);
+    var rows = shown.map(function(r){
+      var orderNo = r.webOrderNumber || r.lnOrder || "—";
+      return '<tr><td>'+esc(r.id)+'</td><td>'+esc(orderNo)+'</td><td>'+(r.customerName?esc(r.customerName):"—")+'</td>'+
+        '<td class="num">'+fmtCurrency(r.amount,r.region)+'</td><td>'+(STATUS[r.status]?esc(STATUS[r.status].label):esc(r.status))+'</td>'+
+        '<td>'+esc(r.agent)+'</td></tr>';
+    }).join("");
+    body = '<div class="tablewrap"><table class="teamtbl"><thead><tr><th>ID</th><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Agent</th></tr></thead><tbody>'+
       (rows || '<tr><td colspan="6"><p class="sub">No matching requests.</p></td></tr>')+
     '</tbody></table></div>'+
-    (list.length>DASH_DRILLDOWN_SHOWN ? ('<p class="sub" style="margin-top:8px">Showing the first '+DASH_DRILLDOWN_SHOWN+' — the Excel export includes all '+list.length+'.</p>') : '')+
+    (list.length>DASH_DRILLDOWN_SHOWN ? ('<p class="sub" style="margin-top:8px">Showing the first '+DASH_DRILLDOWN_SHOWN+' — the Excel export includes all '+list.length+'.</p>') : '');
+  }
+  return '<div class="card">'+
+    '<div class="btnrow" style="justify-content:space-between;margin-bottom:'+(open?"10px":"0")+';flex-wrap:wrap">'+
+      '<button type="button" class="linkbtn" id="dashDrillToggle" style="font-weight:700;font-size:15px;color:var(--ink);text-decoration:none">'+
+        (open?"▾":"▸")+' Matching Requests ('+list.length+')'+
+      '</button>'+
+      '<button class="btn sm" id="dashDrillExportBtn">📊 Export This List to Excel</button>'+
+    '</div>'+
+    body+
   '</div>';
 }
 function exportDashDrilldownXlsx(){
@@ -2486,11 +2504,11 @@ function wireDashboard(){
   if(from) from.addEventListener("change", function(){ state.dashRange.from=this.value; render(); });
   if(to) to.addEventListener("change", function(){ state.dashRange.to=this.value; render(); });
   var dfRegion=$("#dfRegion"), dfStatus=$("#dfStatus"), dfOrderType=$("#dfOrderType"), dfSource=$("#dfSource"), dfAgent=$("#dfAgent");
-  if(dfRegion) dfRegion.addEventListener("change", function(){ state.dashFilters.region=this.value; render(); });
-  if(dfStatus) dfStatus.addEventListener("change", function(){ state.dashFilters.status=this.value; render(); });
-  if(dfOrderType) dfOrderType.addEventListener("change", function(){ state.dashFilters.orderType=this.value; render(); });
-  if(dfSource) dfSource.addEventListener("change", function(){ state.dashFilters.source=this.value; render(); });
-  if(dfAgent) dfAgent.addEventListener("change", function(){ state.dashFilters.agent=this.value; render(); });
+  if(dfRegion) dfRegion.addEventListener("change", function(){ state.dashFilters.region=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfStatus) dfStatus.addEventListener("change", function(){ state.dashFilters.status=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfOrderType) dfOrderType.addEventListener("change", function(){ state.dashFilters.orderType=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfSource) dfSource.addEventListener("change", function(){ state.dashFilters.source=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfAgent) dfAgent.addEventListener("change", function(){ state.dashFilters.agent=this.value; state.dashDrilldownOpen=false; render(); });
   var xlsxBtn = $("#exportXlsxBtn"), pptxBtn = $("#exportPptxBtn");
   if(xlsxBtn) xlsxBtn.addEventListener("click", function(){ exportXlsxReport(); });
   if(pptxBtn) pptxBtn.addEventListener("click", function(){ exportPptxReport(); });
