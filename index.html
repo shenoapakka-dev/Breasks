@@ -2280,7 +2280,9 @@ function renderDashboard(){
   var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1 && REJECTED_STATUSES.indexOf(r.status)===-1 && NOT_CANCELLED_STATUSES.indexOf(r.status)===-1; });
   var cancelledAmt = closedList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var pendingAmt = openList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
-  var retained = list.filter(function(r){ return r.retain==="Retained"; }).length;
+  var retainedList = list.filter(function(r){ return r.retain==="Retained"; });
+  var retained = retainedList.length;
+  var retainedAmt = retainedList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var retRate = total? Math.round(retained/total*100) : 0;
   var closedRate = total? Math.round(closedList.length/total*100) : 0;
 
@@ -2357,6 +2359,7 @@ function renderDashboard(){
     kpiCU("Cancelled Value", cancelledAmt, {prefix:"AED ", decimals:2}, closedList.length+" closed request(s), converted to AED")+
     kpiCU("Pending Value", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" still open, converted to AED")+
     kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained")+
+    kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2}, retained+" retained request(s), converted to AED")+
     kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled")+
   '</div>'+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
