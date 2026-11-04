@@ -159,6 +159,8 @@ textarea{resize:vertical;min-height:64px}
 .reqlist{display:flex;flex-direction:column;gap:10px}
 .reqcard{border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
 .reqlist .reqcard:nth-child(even){background:var(--surface-2)}
+.reqcard.urgent{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
+.reqcard.urgent .reqhead{background:var(--bad-soft)}
 .reqhead{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;flex-wrap:wrap}
 .reqhead .id{font-weight:800;font-size:13px;font-family:"Manrope",sans-serif}
 .reqhead .meta{color:var(--ink-faint);font-size:12px}
@@ -369,6 +371,18 @@ var OPEN_STATUSES = ["new","pending","approved","sent","sent_online","pending_fr
 var CLOSED_STATUSES = ["cancelled_refund","cancelled_credit","cancelled_cdf","sent_store_refund","sent_store_credit"];
 var REJECTED_STATUSES = ["rejected"];
 var NOT_CANCELLED_STATUSES = ["not_cancelled"];
+// Red-flags a request still being worked (not yet cancelled/rejected) whose
+// order is delivering tomorrow, today, or already overdue — the cancellation
+// needs to beat the delivery, so these are the ones to act on first. Closed
+// requests never flag: once it's cancelled/rejected, delivery timing no
+// longer matters.
+function isDeliveryUrgent(r){
+  if(!r.deliveryDate || OPEN_STATUSES.indexOf(r.status)===-1) return false;
+  var d = new Date(r.deliveryDate+"T00:00:00");
+  if(isNaN(d.getTime())) return false;
+  var daysUntil = Math.round((d.getTime()-startOfDay(Date.now()))/86400000);
+  return daysUntil<=1;
+}
 // The one manual choice Operations makes from New is Reject; which "sent"
 // stage to use otherwise is fully automatic from order type + refund method —
 // Cash on Delivery needs no store/online-team step at all (nothing to collect
@@ -676,6 +690,11 @@ function parseEtmPaste(raw){
   var paidRaw = field("Paid Amount").replace(/[^\d.]/g,"");
   var paid = paidRaw!=="" ? parseFloat(paidRaw) : null;
 
+  // "Delivery Date" shows as "2026-11-03 | 00:00-00:00 (None)" — just the
+  // date part feeds the "delivering soon" red-flag on the request card.
+  var ddMatch = field("Delivery Date").match(/(\d{4}-\d{2}-\d{2})/);
+  var deliveryDate = ddMatch ? ddMatch[1] : "";
+
   var customerCode = "", customerName = "";
   var custMatch = field("Customer").match(/^(CU\d+)\s*\|\s*(.+?)\s*-?\s*$/i);
   if(custMatch){ customerCode = custMatch[1].toUpperCase(); customerName = custMatch[2].trim(); }
@@ -696,7 +715,7 @@ function parseEtmPaste(raw){
     });
   }
 
-  return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items, customerCode:customerCode, customerName:customerName, orderSegment:orderSegment };
+  return { lnOrder:lnOrder, webOrderNumber:webOrderNumber, mobile:mobile, total:total, paid:paid, items:items, customerCode:customerCode, customerName:customerName, orderSegment:orderSegment, deliveryDate:deliveryDate };
 }
 
 var _submittingRequest = false; // guards against a double Submit click/Enter firing two writes before the first one returns
@@ -767,7 +786,8 @@ async function submitRequest(){
     refundMethod: refundEl.value, retain: retainEl.value,
     source: sourceEl.value, scope: scopeEl.value, items: scopeEl.value==="Specific Item(s)" ? itemsEl.value.trim() : "",
     customerCode: ($("#customerCodeInput")||{}).value || "", customerName: ($("#customerNameInput")||{}).value || "",
-    orderSegment: ($("#orderSegmentInput")||{}).value || ""
+    orderSegment: ($("#orderSegmentInput")||{}).value || "",
+    deliveryDate: ($("#deliveryDateInput")||{}).value || ""
   };
   // All validation above has passed — this is the only point a real write
   // happens, so it's the only point that needs guarding. A flag alone isn't
@@ -1342,6 +1362,7 @@ function renderNewRequest(){
       '<div class="field" style="margin-bottom:14px"><label>Customer</label><input type="text" id="customerDisplay" placeholder="Filled automatically from the ETM paste" disabled>'+
         '<input type="hidden" id="customerCodeInput"><input type="hidden" id="customerNameInput"></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Order Segment</label><input type="text" id="orderSegmentInput" placeholder="ETM delivery/fulfillment code (e.g. DFX, CDF) — filled from the paste" disabled></div>'+
+      '<div class="field" style="margin-bottom:14px"><label>Expected Delivery Date</label><input type="text" id="deliveryDateInput" placeholder="Filled from the ETM paste — used to flag requests delivering soon" disabled></div>'+
       '<div class="field" style="margin-bottom:14px"><label>Note *</label><textarea id="noteInput" name="note" placeholder="Explain the cancellation in your own words…"></textarea></div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Amount Status — Refund Via *</label><select id="refundMethodSel" name="refundMethod"><option value="">Select…</option>'+
@@ -1601,6 +1622,7 @@ function wireNewRequest(){
       $("#customerDisplay").value = (parsed.customerName?parsed.customerName+" ":"")+"("+parsed.customerCode+")";
     }
     if(parsed.orderSegment) $("#orderSegmentInput").value = parsed.orderSegment;
+    if(parsed.deliveryDate) $("#deliveryDateInput").value = parsed.deliveryDate;
     itemSelections = parsed.items.map(function(it){ return {
       line:it.line, code:it.code, desc:it.desc, wh:it.wh, delivered:it.delivered, bo:it.bo, price:it.price, lineTotal:it.lineTotal,
       unitPrice:it.unitPrice, orderedQty:it.qty, cancelQty:it.qty, checked:false
@@ -1716,6 +1738,7 @@ function renderReqCard(r){
   var can = canAct();
   var canStage = canUpdateStage();
   var isClosed = CLOSED_STATUSES.indexOf(r.status)>-1;
+  var urgent = isDeliveryUrgent(r);
   var regionLabel = (REGIONS.filter(function(x){return x.code===r.region;})[0]||{}).label || r.region;
   var emailBtn = can ? '<button class="btn sm" data-mailto="'+r.id+'" style="margin-bottom:10px">✉️ Email the Store</button>'+
     '<button type="button" class="btn sm" data-copy-email="'+r.id+'" style="margin-bottom:10px">📋 Copy Email</button>' : '';
@@ -1781,9 +1804,10 @@ function renderReqCard(r){
   var hist = (r.history||[]).slice().reverse().map(function(h){
     return '<div class="hrow"><span class="t">'+fmtDate(h.at)+'</span><span>'+esc(STATUS[h.status]?STATUS[h.status].label:h.status)+' · '+esc(h.by)+(h.remark?' — '+esc(h.remark):'')+'</span></div>';
   }).join("");
-  return '<div class="reqcard '+(open?"open":"")+'" data-id="'+r.id+'">'+
+  return '<div class="reqcard '+(open?"open":"")+(urgent?" urgent":"")+'" data-id="'+r.id+'">'+
     '<div class="reqhead" data-toggle="'+r.id+'">'+
       '<span class="id">'+r.id+'</span>'+typeBadge(r.orderType)+statusBadge(r.status)+
+      (urgent ? '<span class="badge bad">🚨 Delivering Soon'+(r.deliveryDate?' — '+esc(r.deliveryDate):'')+'</span>' : '')+
       '<span class="meta">'+esc(r.agent)+' · '+fmtDate(r.createdAt)+'</span>'+
       '<span class="amt num">'+fmtCurrency(r.amount, r.region)+'</span>'+
       '<span class="chev">›</span>'+
@@ -1797,6 +1821,7 @@ function renderReqCard(r){
       '<span>'+esc(r.reason)+'</span>'+
       '<span>'+esc(r.source||"—")+'</span>'+
       '<span>'+esc(refundLabel(r.refundMethod))+'</span>'+
+      (r.deliveryDate ? '<span'+(urgent?' style="color:var(--bad);font-weight:700"':'')+'>Delivery: '+esc(r.deliveryDate)+'</span>' : "")+
       retainBadge(r.retain)+
     '</div>'+
     '<div class="reqbody">'+
@@ -1807,6 +1832,7 @@ function renderReqCard(r){
         '<div><div class="k">Mobile Number</div><div class="vv">'+esc(r.mobile)+copyIconBtn(r.mobile,"Mobile")+'</div></div>'+
         '<div><div class="k">Customer</div><div class="vv">'+(r.customerCode?esc(r.customerName||"")+' ('+esc(r.customerCode)+')':"—")+'</div></div>'+
         '<div><div class="k">Order Segment</div><div class="vv">'+(r.orderSegment?esc(r.orderSegment):"—")+'</div></div>'+
+        '<div><div class="k">Expected Delivery</div><div class="vv"'+(urgent?' style="color:var(--bad);font-weight:700"':'')+'>'+(r.deliveryDate?esc(r.deliveryDate)+(urgent?' 🚨':''):"—")+'</div></div>'+
         '<div><div class="k">Region</div><div class="vv">'+esc(regionLabel)+'</div></div>'+
         '<div><div class="k">Reason</div><div class="vv">'+esc(r.reason)+'</div></div>'+
         '<div><div class="k">Refund Via</div><div class="vv">'+esc(refundLabel(r.refundMethod))+'</div></div>'+
@@ -1835,7 +1861,7 @@ function wireRequests(){
 }
 function exportCsv(){
   var list = filteredRequests();
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate"];
   var head = cols.join(",");
   var rows = list.map(function(r){
     return cols.map(function(c){
@@ -1888,7 +1914,7 @@ function exportXlsxReport(){
 
   var rawCols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","currency",
     "amount","amountAED","reason","note","refundMethod","retain","status","statusLabel","source","scope","items",
-    "customerCode","customerName","orderSegment"];
+    "customerCode","customerName","orderSegment","deliveryDate"];
   var rawRows = [rawCols].concat(d.list.map(function(r){
     return rawCols.map(function(c){
       if(c==="createdAt") return fmtDate(r.createdAt);
@@ -2133,7 +2159,7 @@ function renderDashDrilldown(list){
 function exportDashDrilldownXlsx(){
   if(typeof XLSX==="undefined"){ toast("Excel library didn't load — check your connection and try again."); return; }
   var list = scopedRequests(state.dashScope); // same scope+filters the drill-down card itself shows
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate"];
   var rows = [cols].concat(list.map(function(r){
     return cols.map(function(c){
       if(c==="createdAt") return fmtDate(r.createdAt);
@@ -2232,11 +2258,11 @@ function renderDashboard(){
   renderDashDrilldown(list)+
   (canUpdateStage() ? renderHealthSection() : '')+
   '<div class="kpis">'+
-    kpi("Requests", total, scopeLabel(scope))+
-    kpi("Cancelled Value", "AED "+fmtMoney(cancelledAmt), closedList.length+" closed request(s), converted to AED")+
-    kpi("Pending Value", "AED "+fmtMoney(pendingAmt), openList.length+" still open, converted to AED")+
-    kpi("Retention Rate", retRate+"%", retained+" of "+total+" retained")+
-    kpi("Closed Rate", closedRate+"%", closedList.length+" of "+total+" fully cancelled")+
+    kpiCU("Requests", total, {decimals:0}, scopeLabel(scope))+
+    kpiCU("Cancelled Value", cancelledAmt, {prefix:"AED ", decimals:2}, closedList.length+" closed request(s), converted to AED")+
+    kpiCU("Pending Value", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" still open, converted to AED")+
+    kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained")+
+    kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled")+
   '</div>'+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
@@ -2264,6 +2290,44 @@ function renderDashboard(){
 }
 function scopeLabel(s){ return s==="today"?"today":(s==="month"?"this month":(s==="custom"?"the selected range":"all time")); }
 function kpi(lbl,val,sub){ return '<div class="kpi"><div class="lbl">'+lbl+'</div><div class="val num">'+val+'</div><div class="sub">'+sub+'</div></div>'; }
+// Same card, but the number counts up from 0 on first paint instead of just
+// appearing — opts: {prefix, suffix, decimals}. playDashboardCountUp() (see
+// wireDashboard()) drives the actual animation; this just renders the
+// correct final value plus the data attributes it reads.
+function kpiCU(lbl, rawNum, opts, sub){
+  opts = opts||{};
+  var prefix=opts.prefix||"", suffix=opts.suffix||"", decimals=opts.decimals||0;
+  var finalText = prefix+fmtCountNum(rawNum,decimals)+suffix;
+  return '<div class="kpi"><div class="lbl">'+lbl+'</div>'+
+    '<div class="val num" data-countup-raw="'+rawNum+'" data-countup-prefix="'+esc(prefix)+'" data-countup-suffix="'+esc(suffix)+'" data-countup-decimals="'+decimals+'">'+finalText+'</div>'+
+    '<div class="sub">'+sub+'</div></div>';
+}
+function fmtCountNum(n, decimals){
+  n = Number(n)||0;
+  return decimals>0 ? n.toLocaleString(undefined,{minimumFractionDigits:decimals,maximumFractionDigits:decimals}) : Math.round(n).toLocaleString();
+}
+// Runs once per distinct scope/filter combo (see wireDashboard()) — not on
+// every background poll, so the numbers don't visibly reset and re-count
+// every 12 seconds while someone's just looking at the page.
+function playDashboardCountUp(){
+  var els = $all(".kpi .val[data-countup-raw]");
+  if(!els.length) return;
+  var DURATION = 900;
+  var start = null;
+  function frame(now){
+    if(start===null) start = now;
+    var t = Math.min(1, (now-start)/DURATION);
+    var eased = 1-Math.pow(1-t, 3); // ease-out cubic
+    els.forEach(function(el){
+      var raw = Number(el.dataset.countupRaw)||0;
+      var decimals = Number(el.dataset.countupDecimals)||0;
+      var prefix = el.dataset.countupPrefix||"", suffix = el.dataset.countupSuffix||"";
+      el.textContent = prefix+fmtCountNum(raw*eased, decimals)+suffix;
+    });
+    if(t<1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
 function chartCard(title,inner){ return '<div class="card"><h2 style="font-size:14.5px">'+title+'</h2>'+inner+'</div>'; }
 function toPairs(m){ return Object.keys(m).map(function(k){ return {label:k, value:m[k]}; }).sort(function(a,b){return b.value-a.value;}); }
 function regionCodeForLabel(label){ var m = REGIONS.filter(function(r){ return r.label===label; })[0]; return m ? m.code : ""; }
@@ -2404,6 +2468,11 @@ function renderRegionLegend(list){
   }).join("")+'</div>';
 }
 function wireDashboard(){
+  // Count-up only fires when the scope or filters actually changed since the
+  // last paint — not on every ~12s background poll, which would otherwise
+  // re-animate the numbers from 0 while someone's mid-read.
+  var dashSig = state.dashScope+"|"+JSON.stringify(state.dashFilters);
+  if(state._dashAnimSig !== dashSig){ state._dashAnimSig = dashSig; playDashboardCountUp(); }
   var svg = $("#trendSvg");
   if(svg){
     on(svg,"mousemove","rect.trbar",function(e,t){

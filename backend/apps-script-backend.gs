@@ -10,7 +10,7 @@ var APP_KEY = "daQs4oFH4psq9jc9p8d669jFtm1Q7tBq"; // must match API_KEY in the H
 // GET) — the JSON response's "version" field confirms the live deployment
 // actually picked up the change, instead of guessing from an "unknown
 // action" error whether the paste/redeploy step was missed.
-var BACKEND_VERSION = "2026-11-03.2";
+var BACKEND_VERSION = "2026-11-04.1";
 // Stage changes (New -> Sent to Store -> Cancelled...), sending the store/
 // online-team email, and editing a request after the fact are restricted to
 // this named list, not the whole Operations/Admin role. Lowercase, compared
@@ -108,7 +108,7 @@ function setup() {
   if (u.getLastRow() === 0) u.appendRow(["username", "password", "role", "createdAt"]);
   var r = ss.getSheetByName("Requests") || ss.insertSheet("Requests");
   if (r.getLastRow() === 0) {
-    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment"]);
+    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment","deliveryDate"]);
   }
   var def = ss.getSheetByName("Sheet1");
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 2) ss.deleteSheet(def);
@@ -158,6 +158,17 @@ function migrateAddOrderSegment() {
   if (headers.indexOf("orderSegment") === -1) r.getRange(1, lastCol + 1).setValue("orderSegment");
 }
 
+/* One-time migration: run this ONCE if your "Requests" tab predates the
+   "deliveryDate" field (ETM's own expected delivery date, parsed from a
+   pasted ETM order — drives the "delivering soon" red flag on the request
+   card). Safe to run more than once. */
+function migrateAddDeliveryDate() {
+  var r = requestsSheet();
+  var lastCol = r.getLastColumn();
+  var headers = r.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf("deliveryDate") === -1) r.getRange(1, lastCol + 1).setValue("deliveryDate");
+}
+
 /* ---------- helpers ---------- */
 // Case-sensitive on purpose: "ShenoudaH" and "shenoudah" are different accounts.
 function normalizeUsername(u) { return String(u || "").trim(); }
@@ -179,7 +190,7 @@ function requestsSheet() {
   var sh = ss.getSheetByName("Requests");
   if (!sh) {
     sh = ss.insertSheet("Requests");
-    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment"]);
+    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment","deliveryDate"]);
   }
   return sh;
 }
@@ -273,7 +284,7 @@ function submitRequest(agentUsername, d) {
   sh.appendRow([
     id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.mobile || "", d.region,
     Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "new", now, JSON.stringify(history),
-    d.source || "", d.scope || "", d.items || "", d.customerCode || "", d.customerName || "", d.orderSegment || ""
+    d.source || "", d.scope || "", d.items || "", d.customerCode || "", d.customerName || "", d.orderSegment || "", d.deliveryDate || ""
   ]);
   return { id: id };
 }
@@ -318,7 +329,7 @@ function updateStatus(id, status, byUsername, remark) {
 // numbers are 1-indexed, matching the Requests sheet's actual layout.
 var EDITABLE_FIELDS = {
   webOrderNumber: 5, lnOrder: 6, mobile: 7, region: 8, amount: 9,
-  reason: 10, note: 11, refundMethod: 12, retain: 13
+  reason: 10, note: 11, refundMethod: 12, retain: 13, deliveryDate: 23
 };
 function editRequest(id, patch, byUsername) {
   patch = patch || {};
@@ -380,7 +391,7 @@ function getAll() {
       amount: rd[j][8], reason: rd[j][9], note: rd[j][10], refundMethod: rd[j][11], retain: rd[j][12],
       status: rd[j][13], updatedAt: rd[j][14], history: history,
       source: rd[j][16] || "", scope: rd[j][17] || "", items: rd[j][18] || "",
-      customerCode: rd[j][19] || "", customerName: rd[j][20] || "", orderSegment: rd[j][21] || ""
+      customerCode: rd[j][19] || "", customerName: rd[j][20] || "", orderSegment: rd[j][21] || "", deliveryDate: rd[j][22] || ""
     });
   }
   return { users: users, requests: requests };
