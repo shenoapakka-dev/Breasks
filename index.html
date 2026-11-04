@@ -1156,6 +1156,12 @@ function initGlobalEvents(){
       render();
       return;
     }
+    if(t = e.target.closest("[data-req-ordertype]")){
+      var ot = t.dataset.reqOrdertype;
+      state.filters.orderType = (state.filters.orderType===ot) ? "" : ot;
+      render();
+      return;
+    }
     if(t = e.target.closest("#exportBtn")){ exportCsv(); return; }
     if(t = e.target.closest("[data-reset]")){ adminResetPassword(t.dataset.reset); return; }
     if(t = e.target.closest("#createAcctBtn")){
@@ -1722,9 +1728,19 @@ function renderRequestsSummary(){
   base.forEach(function(r){
     Object.keys(STATUS_BUCKETS).forEach(function(k){ if(STATUS_BUCKETS[k].indexOf(r.status)>-1) counts[k]++; });
   });
+  // Order-type counts ignore the orderType filter itself (same trick as the
+  // bucket cards ignoring `bucket`), so both cards stay visible with real
+  // counts to click between instead of one going to zero once selected.
+  var baseNoType = state.requests.filter(function(r){ return matchesCoreFilters(r, Object.assign({}, f, {orderType:""})); });
+  var storeCount = baseNoType.filter(function(r){ return r.orderType==="Store"; }).length;
+  var onlineCount = baseNoType.filter(function(r){ return r.orderType==="Online"; }).length;
   var active = f.bucket||"";
   function card(key,label,val){
     return '<div class="kpi fu-kpi'+(active===key?" active":"")+'" data-req-bucket="'+key+'">'+
+      '<div class="lbl">'+label+'</div><div class="val num" data-countup-raw="'+val+'" data-countup-decimals="0">'+val+'</div></div>';
+  }
+  function typeCard(key,label,val){
+    return '<div class="kpi fu-kpi'+(f.orderType===key?" active":"")+'" data-req-ordertype="'+key+'">'+
       '<div class="lbl">'+label+'</div><div class="val num" data-countup-raw="'+val+'" data-countup-decimals="0">'+val+'</div></div>';
   }
   return '<div class="kpis" style="margin-bottom:14px">'+
@@ -1733,6 +1749,8 @@ function renderRequestsSummary(){
     card("open","In Progress",counts.open)+
     card("closed","Cancelled",counts.closed)+
     card("rejected","Rejected / Not Cancelled",counts.rejected)+
+    typeCard("Store","Store",storeCount)+
+    typeCard("Online","Online",onlineCount)+
   '</div>';
 }
 function renderRequests(){
@@ -2361,6 +2379,8 @@ function renderDashboard(){
     kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained")+
     kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2}, retained+" retained request(s), converted to AED")+
     kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled")+
+    kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders")+
+    kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders")+
   '</div>'+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
