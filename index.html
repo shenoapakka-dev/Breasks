@@ -449,7 +449,7 @@ var state = {
   route:"new",
   dashScope:"month",
   dashRange:{from:"",to:""},
-  dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:""},
+  dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:"",refundMethod:"",retain:"",minAED:"",maxAED:""},
   openCard:null,
   filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"", retain:"", reason:"", minAED:"", maxAED:"", bucket:"" },
   fu: null // set below once fuInitialState() is defined (function declarations are hoisted, so this is fine)
@@ -1009,6 +1009,10 @@ function scopedRequests(scope){
   if(f.source) list = list.filter(function(r){ return r.source===f.source; });
   if(f.agent) list = list.filter(function(r){ return r.agent===f.agent; });
   if(f.reason) list = list.filter(function(r){ return r.reason===f.reason; });
+  if(f.refundMethod) list = list.filter(function(r){ return r.refundMethod===f.refundMethod; });
+  if(f.retain) list = list.filter(function(r){ return r.retain===f.retain; });
+  if(f.minAED!=="" && f.minAED!=null) list = list.filter(function(r){ return toAED(r.amount,r.region) >= Number(f.minAED); });
+  if(f.maxAED!=="" && f.maxAED!=null) list = list.filter(function(r){ return toAED(r.amount,r.region) <= Number(f.maxAED); });
   return list;
 }
 function agentNames(){
@@ -2254,7 +2258,7 @@ function renderHealthSection(){
 // highlight with no way to see or export what it actually matched.
 function dashFiltersActive(){
   var f = state.dashFilters;
-  return !!(f.region||f.status||f.orderType||f.source||f.agent||f.reason);
+  return !!(f.region||f.status||f.orderType||f.source||f.agent||f.reason||f.refundMethod||f.retain||f.minAED||f.maxAED);
 }
 var DASH_DRILLDOWN_SHOWN = 200;
 // Collapsed by default every time a new drill-down appears (a fresh chart
@@ -2322,6 +2326,11 @@ function renderDashboard(){
   var retained = retainedList.length;
   var retainedAmt = retainedList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var retRate = total? Math.round(retained/total*100) : 0;
+  // "Refund Value" = the AED value of requests where an actual monetary
+  // refund was asked for (Same Payment Method), as opposed to Credit Note
+  // or Cash on Delivery (no money ever changed hands for those).
+  var refundValueList = list.filter(function(r){ return r.refundMethod==="Same Payment Method"; });
+  var refundValueAmt = refundValueList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var closedRate = total? Math.round(closedList.length/total*100) : 0;
 
   var byReason = countBy(list, function(r){ return r.reason; });
@@ -2388,6 +2397,14 @@ function renderDashboard(){
         SOURCES.map(function(s){ return '<option value="'+esc(s)+'" '+(f.source===s?"selected":"")+'>'+esc(s)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field" style="width:150px"><label>Agent</label><select id="dfAgent"><option value="">All</option>'+
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(f.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:150px"><label>Refund Method</label><select id="dfRefund"><option value="">All</option>'+
+        REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'" '+(f.refundMethod===m?"selected":"")+'>'+esc(refundLabel(m))+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:140px"><label>Retain / Not Retain</label><select id="dfRetain"><option value="">All</option>'+
+        RETAIN_OPTIONS.map(function(x){ return '<option value="'+esc(x)+'" '+(f.retain===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:190px"><label>Reason</label><select id="dfReason"><option value="">All</option>'+
+        REASONS.map(function(x){ return '<option value="'+esc(x)+'" '+(f.reason===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="number" id="dfMinAED" min="0" step="1" placeholder="e.g. 1000" value="'+esc(f.minAED)+'"></div>'+
+      '<div class="field" style="width:130px"><label>Max Value (AED)</label><input type="number" id="dfMaxAED" min="0" step="1" placeholder="No limit" value="'+esc(f.maxAED)+'"></div>'+
     '</div>'+
   '</div>'+
   renderDashDrilldown(list)+
@@ -2398,6 +2415,7 @@ function renderDashboard(){
     kpiCU("Pending Value", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" still open, converted to AED")+
     kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained")+
     kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2}, retained+" retained request(s), converted to AED")+
+    kpiCU("Refund Value", refundValueAmt, {prefix:"AED ", decimals:2}, refundValueList.length+" request(s) via Same Payment Method, converted to AED")+
     kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled")+
     kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders")+
     kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders")+
@@ -2623,12 +2641,18 @@ function wireDashboard(){
   var from = $("#dashFrom"), to = $("#dashTo");
   if(from) from.addEventListener("change", function(){ state.dashRange.from=this.value; render(); });
   if(to) to.addEventListener("change", function(){ state.dashRange.to=this.value; render(); });
-  var dfRegion=$("#dfRegion"), dfStatus=$("#dfStatus"), dfOrderType=$("#dfOrderType"), dfSource=$("#dfSource"), dfAgent=$("#dfAgent");
+  var dfRegion=$("#dfRegion"), dfStatus=$("#dfStatus"), dfOrderType=$("#dfOrderType"), dfSource=$("#dfSource"), dfAgent=$("#dfAgent"),
+      dfRefund=$("#dfRefund"), dfRetain=$("#dfRetain"), dfReason=$("#dfReason"), dfMinAED=$("#dfMinAED"), dfMaxAED=$("#dfMaxAED");
   if(dfRegion) dfRegion.addEventListener("change", function(){ state.dashFilters.region=this.value; state.dashDrilldownOpen=false; render(); });
   if(dfStatus) dfStatus.addEventListener("change", function(){ state.dashFilters.status=this.value; state.dashDrilldownOpen=false; render(); });
   if(dfOrderType) dfOrderType.addEventListener("change", function(){ state.dashFilters.orderType=this.value; state.dashDrilldownOpen=false; render(); });
   if(dfSource) dfSource.addEventListener("change", function(){ state.dashFilters.source=this.value; state.dashDrilldownOpen=false; render(); });
   if(dfAgent) dfAgent.addEventListener("change", function(){ state.dashFilters.agent=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfRefund) dfRefund.addEventListener("change", function(){ state.dashFilters.refundMethod=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfRetain) dfRetain.addEventListener("change", function(){ state.dashFilters.retain=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfReason) dfReason.addEventListener("change", function(){ state.dashFilters.reason=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfMinAED) dfMinAED.addEventListener("input", function(){ state.dashFilters.minAED=this.value; state.dashDrilldownOpen=false; render(); });
+  if(dfMaxAED) dfMaxAED.addEventListener("input", function(){ state.dashFilters.maxAED=this.value; state.dashDrilldownOpen=false; render(); });
   var xlsxBtn = $("#exportXlsxBtn"), pptxBtn = $("#exportPptxBtn");
   if(xlsxBtn) xlsxBtn.addEventListener("click", function(){ exportXlsxReport(); });
   if(pptxBtn) pptxBtn.addEventListener("click", function(){ exportPptxReport(); });
