@@ -81,6 +81,10 @@ input[type=text],input[type=number],input[type=password],select,textarea{
 }
 input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
 textarea{resize:vertical;min-height:64px}
+/* Typing digits in a number/tel field under an Arabic browser/OS locale
+   otherwise enters right-to-left (cursor jumps to the left as you type) —
+   force left-to-right so amounts and phone numbers type normally. */
+input[type=number],input[type=tel]{direction:ltr;text-align:left}
 .field{display:flex;flex-direction:column;gap:0;min-width:0}
 .field .hint{font-size:11.5px;color:var(--ink-faint);margin-top:4px;min-height:0}
 .field .hint.warn{color:var(--bad);font-weight:600}
@@ -447,7 +451,7 @@ var state = {
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:""},
   openCard:null,
-  filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"", retain:"", minAED:"", maxAED:"", bucket:"" },
+  filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"", retain:"", reason:"", minAED:"", maxAED:"", bucket:"" },
   fu: null // set below once fuInitialState() is defined (function declarations are hoisted, so this is fine)
 };
 state.fu = fuInitialState();
@@ -868,6 +872,18 @@ function recipientFor(r){
   if(m && m.length) return m[0].branch;
   return "Store";
 }
+// Finds the most recent genuine Operations Remark in a request's history —
+// skips the auto-generated "Request submitted" and "Edited: ..." entries so
+// re-copying the email later (via the Copy Email button) still carries the
+// same remark the store email already got when the status was last changed.
+function lastOpsRemark(r){
+  var hist = r.history||[];
+  for(var i=hist.length-1; i>=0; i--){
+    var h = hist[i];
+    if(h.remark && h.remark!=="Request submitted" && h.remark.indexOf("Edited: ")!==0) return h.remark;
+  }
+  return "";
+}
 function buildEmailParts(r, status, remark){
   var recipient = recipientFor(r);
   var isWhole = r.scope !== "Specific Item(s)";
@@ -928,7 +944,7 @@ function buildEmailParts(r, status, remark){
     });
     lines.push("");
   }
-  if(remark){ lines.push("Remark: "+remark); lines.push(""); }
+  if(remark){ lines.push("Operation Remarks: "+remark); lines.push(""); }
   lines.push("Regards,");
   lines.push(state.currentUser.username);
 
@@ -1030,6 +1046,7 @@ function matchesCoreFilters(r, f){
   if(f.agent && r.agent!==f.agent) return false;
   if(f.refundMethod && r.refundMethod!==f.refundMethod) return false;
   if(f.retain && r.retain!==f.retain) return false;
+  if(f.reason && r.reason!==f.reason) return false;
   if(f.minAED!=="" && f.minAED!=null && toAED(r.amount,r.region) < Number(f.minAED)) return false;
   if(f.maxAED!=="" && f.maxAED!=null && toAED(r.amount,r.region) > Number(f.maxAED)) return false;
   if(f.q){
@@ -1176,7 +1193,7 @@ function initGlobalEvents(){
     }
     if(t = e.target.closest("[data-copy-email]")){
       var rec2 = state.requests.filter(function(x){ return x.id===t.dataset.copyEmail; })[0];
-      if(rec2) copyEmailText(rec2, rec2.status, "");
+      if(rec2) copyEmailText(rec2, rec2.status, lastOpsRemark(rec2));
       return;
     }
     if(t = e.target.closest("[data-etm]")){
@@ -1760,7 +1777,7 @@ function renderRequests(){
     '<p class="sub" style="margin:0">'+(state.requests.length? "Try clearing a filter." : "Once agents submit cancellation requests, they will appear here.")+'</p></div>'
   );
   var totalAED = list.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
-  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent||state.filters.refundMethod||state.filters.retain||state.filters.minAED||state.filters.maxAED||state.filters.bucket);
+  var anyFilterActive = !!(state.filters.q||state.filters.status||state.filters.orderType||state.filters.region||state.filters.agent||state.filters.refundMethod||state.filters.retain||state.filters.reason||state.filters.minAED||state.filters.maxAED||state.filters.bucket);
   return '<div class="card">'+
     renderRequestsSummary()+
     '<div class="filterbar" style="margin-bottom:12px">'+
@@ -1774,6 +1791,8 @@ function renderRequests(){
         REFUND_METHODS.map(function(m){ return '<option value="'+esc(m)+'" '+(state.filters.refundMethod===m?"selected":"")+'>'+esc(refundLabel(m))+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Retain / Not Retain</label><select id="fRetain"><option value="">All</option>'+
         RETAIN_OPTIONS.map(function(x){ return '<option value="'+esc(x)+'" '+(state.filters.retain===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Reason</label><select id="fReason"><option value="">All</option>'+
+        REASONS.map(function(x){ return '<option value="'+esc(x)+'" '+(state.filters.reason===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Agent</label><select id="fAgent"><option value="">All</option>'+
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.filters.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="number" id="fMinAED" min="0" step="1" placeholder="e.g. 1000" value="'+esc(state.filters.minAED)+'"></div>'+
@@ -1956,6 +1975,7 @@ function wireRequests(){
   $("#fRegion").addEventListener("change", function(){ state.filters.region=this.value; render(); });
   $("#fRefund").addEventListener("change", function(){ state.filters.refundMethod=this.value; render(); });
   $("#fRetain").addEventListener("change", function(){ state.filters.retain=this.value; render(); });
+  $("#fReason").addEventListener("change", function(){ state.filters.reason=this.value; render(); });
   $("#fAgent").addEventListener("change", function(){ state.filters.agent=this.value; render(); });
   $("#fMinAED").addEventListener("input", function(){ state.filters.minAED=this.value; render(); });
   $("#fMaxAED").addEventListener("input", function(){ state.filters.maxAED=this.value; render(); });
