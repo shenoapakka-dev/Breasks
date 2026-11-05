@@ -125,6 +125,11 @@ input[type=number],input[type=tel]{direction:ltr;text-align:left}
 .kpi .lbl{font-size:12px;color:var(--ink-muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .kpi .val{font-size:26px;font-weight:800;margin-top:6px;font-family:"Manrope",sans-serif}
 .kpi .sub{font-size:12px;color:var(--ink-faint);margin-top:2px}
+.kpi-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.trend{font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;letter-spacing:0}
+.trend.up{background:var(--good-soft);color:var(--good)}
+.trend.down{background:var(--bad-soft);color:var(--bad)}
+.trend.flat{background:var(--bg);color:var(--ink-faint)}
 
 .scopebar{display:flex;gap:6px;background:var(--surface-2);padding:3px;border-radius:9px;width:max-content}
 .scopebar button{border:none;background:transparent;padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:700;color:var(--ink-muted);cursor:pointer}
@@ -993,15 +998,7 @@ function canUpdateStage(){
 var ACCOUNT_CREATORS = ["shenoudah"];
 function canCreateAccounts(){ return state.currentUser && ACCOUNT_CREATORS.indexOf(String(state.currentUser.username||"").toLowerCase())!==-1; }
 function isAdmin(){ return state.currentUser && state.currentUser.role==="admin"; }
-function scopedRequests(scope){
-  var now=Date.now(), from=0, to=now+1;
-  if(scope==="today") from = startOfDay(now);
-  else if(scope==="month") from = startOfMonth(now);
-  else if(scope==="custom"){
-    from = state.dashRange.from ? new Date(state.dashRange.from+"T00:00:00").getTime() : 0;
-    to = state.dashRange.to ? new Date(state.dashRange.to+"T23:59:59").getTime() : now+1;
-  }
-  var list = state.requests.filter(function(r){ return r.createdAt >= from && r.createdAt <= to; });
+function applyDashFilters(list){
   var f = state.dashFilters;
   if(f.region) list = list.filter(function(r){ return r.region===f.region; });
   if(f.status) list = list.filter(function(r){ return (r.status==="pending"?"new":r.status)===f.status; });
@@ -1014,6 +1011,35 @@ function scopedRequests(scope){
   if(f.minAED!=="" && f.minAED!=null) list = list.filter(function(r){ return toAED(r.amount,r.region) >= Number(f.minAED); });
   if(f.maxAED!=="" && f.maxAED!=null) list = list.filter(function(r){ return toAED(r.amount,r.region) <= Number(f.maxAED); });
   return list;
+}
+function requestsInRange(from, to){
+  return applyDashFilters(state.requests.filter(function(r){ return r.createdAt >= from && r.createdAt <= to; }));
+}
+function scopedRequests(scope){
+  var now=Date.now(), from=0, to=now+1;
+  if(scope==="today") from = startOfDay(now);
+  else if(scope==="month") from = startOfMonth(now);
+  else if(scope==="custom"){
+    from = state.dashRange.from ? new Date(state.dashRange.from+"T00:00:00").getTime() : 0;
+    to = state.dashRange.to ? new Date(state.dashRange.to+"T23:59:59").getTime() : now+1;
+  }
+  return requestsInRange(from, to);
+}
+// The previous, equal-length period immediately before the current scope —
+// "yesterday" for Today, "last month" for This Month — so the dashboard can
+// show a trend arrow. All Time and Custom have no single natural previous
+// period, so they get none (see renderDashboard).
+function previousPeriodRequests(scope){
+  if(scope==="today"){
+    var todayStart = startOfDay(Date.now());
+    return requestsInRange(todayStart-86400000, todayStart-1);
+  }
+  if(scope==="month"){
+    var monthStart = startOfMonth(Date.now());
+    var prevMonthEnd = monthStart-1;
+    return requestsInRange(startOfMonth(prevMonthEnd), prevMonthEnd);
+  }
+  return null;
 }
 function agentNames(){
   var seen = {}, names = [];
@@ -1252,6 +1278,7 @@ function initGlobalEvents(){
         reason: box2.querySelector(".editReason").value,
         refundMethod: box2.querySelector(".editRefund").value,
         retain: box2.querySelector(".editRetain").value,
+        deliveryDate: box2.querySelector(".editDeliveryDate").value,
         note: box2.querySelector(".editNote").value.trim()
       };
       // Visible feedback the save is actually in flight — without this, a
@@ -1912,7 +1939,10 @@ function renderReqCard(r){
       '<div class="field"><label>Reason</label><select class="editReason">'+REASONS.map(function(x){ return '<option '+(x===r.reason?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Refund Via</label><select class="editRefund">'+REFUND_METHODS.map(function(x){ return '<option value="'+esc(x)+'" '+(x===r.refundMethod?"selected":"")+'>'+esc(refundLabel(x))+'</option>'; }).join("")+'</select></div>'+
     '</div>'+
-    '<div class="field" style="margin-bottom:10px"><label>Retain / Not Retain</label><select class="editRetain">'+RETAIN_OPTIONS.map(function(x){ return '<option '+(x===r.retain?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+    '<div class="grid cols2" style="margin-bottom:10px">'+
+      '<div class="field"><label>Retain / Not Retain</label><select class="editRetain">'+RETAIN_OPTIONS.map(function(x){ return '<option '+(x===r.retain?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Expected Delivery Date</label><input type="date" class="editDeliveryDate" value="'+esc(r.deliveryDate||"")+'"></div>'+
+    '</div>'+
     '<div class="field" style="margin-bottom:10px"><label>Note</label><textarea class="editNote">'+esc(r.note)+'</textarea></div>'+
     '<div class="btnrow"><button type="button" class="btn good sm" data-save-edit="'+r.id+'">Save Changes</button></div>'+
   '</div>' : '';
@@ -2311,10 +2341,36 @@ function exportDashDrilldownXlsx(){
   XLSX.writeFile(wb, "PanHome_Dashboard_Filtered.xlsx");
   toast("Excel exported — "+list.length+" request(s).");
 }
+// Just the numbers kpiCU's trend badges need, computed the same way as the
+// main dashboard metrics below but for an arbitrary (usually previous-period)
+// list — kept separate from the full renderDashboard body so it stays in
+// sync by construction rather than by two copies of the same math.
+function dashKpiSnapshot(list){
+  var total = list.length;
+  var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
+  var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1 && REJECTED_STATUSES.indexOf(r.status)===-1 && NOT_CANCELLED_STATUSES.indexOf(r.status)===-1; });
+  var retainedList = list.filter(function(r){ return r.retain==="Retained"; });
+  var refundValueList = list.filter(function(r){ return r.refundMethod==="Same Payment Method"; });
+  var byType = countBy(list, function(r){ return r.orderType; });
+  return {
+    total: total,
+    cancelledAmt: closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
+    pendingAmt: openList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
+    retRate: total? Math.round(retainedList.length/total*100) : 0,
+    retainedAmt: retainedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
+    refundValueAmt: refundValueList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
+    closedRate: total? Math.round(closedList.length/total*100) : 0,
+    store: byType["Store"]||0,
+    online: byType["Online"]||0
+  };
+}
 function renderDashboard(){
   var scope = state.dashScope;
   var list = scopedRequests(scope);
   var total = list.length;
+  var prevRaw = previousPeriodRequests(scope);
+  var prev = prevRaw ? dashKpiSnapshot(prevRaw) : null;
+  var trendNote = scope==="today" ? "vs. yesterday" : (scope==="month" ? "vs. last month" : "");
 
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
   // Rejected requests count toward neither Pending nor Cancelled value — they
@@ -2409,16 +2465,17 @@ function renderDashboard(){
   '</div>'+
   renderDashDrilldown(list)+
   (canUpdateStage() ? renderHealthSection() : '')+
+  (trendNote ? '<p class="sub" style="margin:-4px 0 10px">Trend arrows compare this period '+trendNote+'.</p>' : '')+
   '<div class="kpis">'+
-    kpiCU("Requests", total, {decimals:0}, scopeLabel(scope))+
-    kpiCU("Cancelled Value", cancelledAmt, {prefix:"AED ", decimals:2}, closedList.length+" closed request(s), converted to AED")+
-    kpiCU("Pending Value", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" still open, converted to AED")+
-    kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained")+
-    kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2}, retained+" retained request(s), converted to AED")+
-    kpiCU("Refund Value", refundValueAmt, {prefix:"AED ", decimals:2}, refundValueList.length+" request(s) via Same Payment Method, converted to AED")+
-    kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled")+
-    kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders")+
-    kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders")+
+    kpiCU("Requests", total, {decimals:0}, scopeLabel(scope), prev && prev.total)+
+    kpiCU("Cancelled Value", cancelledAmt, {prefix:"AED ", decimals:2}, closedList.length+" closed request(s), converted to AED", prev && prev.cancelledAmt)+
+    kpiCU("Pending Value", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" still open, converted to AED", prev && prev.pendingAmt)+
+    kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained", prev && prev.retRate)+
+    kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2}, retained+" retained request(s), converted to AED", prev && prev.retainedAmt)+
+    kpiCU("Refund Value", refundValueAmt, {prefix:"AED ", decimals:2}, refundValueList.length+" request(s) via Same Payment Method, converted to AED", prev && prev.refundValueAmt)+
+    kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled", prev && prev.closedRate)+
+    kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders", prev && prev.store)+
+    kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders", prev && prev.online)+
   '</div>'+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
@@ -2450,13 +2507,24 @@ function kpi(lbl,val,sub){ return '<div class="kpi"><div class="lbl">'+lbl+'</di
 // appearing — opts: {prefix, suffix, decimals}. playDashboardCountUp() (see
 // wireDashboard()) drives the actual animation; this just renders the
 // correct final value plus the data attributes it reads.
-function kpiCU(lbl, rawNum, opts, sub){
+function kpiCU(lbl, rawNum, opts, sub, trendPrev){
   opts = opts||{};
   var prefix=opts.prefix||"", suffix=opts.suffix||"", decimals=opts.decimals||0;
   var finalText = prefix+fmtCountNum(rawNum,decimals)+suffix;
-  return '<div class="kpi"><div class="lbl">'+lbl+'</div>'+
+  var trend = trendPrev!=null ? trendBadge(rawNum, trendPrev) : '';
+  return '<div class="kpi"><div class="kpi-head"><div class="lbl">'+lbl+'</div>'+trend+'</div>'+
     '<div class="val num" data-countup-raw="'+rawNum+'" data-countup-prefix="'+esc(prefix)+'" data-countup-suffix="'+esc(suffix)+'" data-countup-decimals="'+decimals+'">'+finalText+'</div>'+
     '<div class="sub">'+sub+'</div></div>';
+}
+// A small up/down trend pill comparing a KPI's current value to its value in
+// the previous equivalent period (yesterday / last month — see
+// previousPeriodRequests).
+function trendBadge(curr, prev){
+  curr = Number(curr)||0; prev = Number(prev)||0;
+  if(curr===prev) return '<span class="trend flat">→ 0%</span>';
+  var up = curr>prev;
+  var pct = prev===0 ? 100 : Math.round(Math.abs((curr-prev)/prev)*100);
+  return '<span class="trend '+(up?"up":"down")+'">'+(up?"▲":"▼")+' '+pct+'%</span>';
 }
 function fmtCountNum(n, decimals){
   n = Number(n)||0;
