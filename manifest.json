@@ -3,7 +3,6 @@
   "name": "Breasks – ETM Trip Planner",
   "version": "1.0.0",
   "description": "Plans Pan Home delivery trips from ETM orders: groups by area, splits by vehicle/CBM capacity and 3 daily slots, orders stops farthest-to-nearest from the warehouse.",
-  "default_locale": "en",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
