@@ -271,8 +271,8 @@
   function exportCsv(runResult) {
     const rows = [
       [
-        "Slot",
         "Trip#",
+        "Slot",
         "StopSeq",
         "AreaCode",
         "AreaLabel",
@@ -283,19 +283,19 @@
         "FxTime",
         "Value",
         "ReturnPickup",
+        "Notes",
       ],
     ];
-    let tripNo = 0;
-    for (const slot of runResult.plan.slots) {
-      for (const trip of slot.trips) {
-        tripNo++;
+    for (const vehicle of runResult.plan.vehicles) {
+      for (const leg of vehicle.legs) {
+        if (!leg.trip) continue;
         let stopSeq = 0;
-        for (const stop of trip.stops) {
+        for (const stop of leg.trip.stops) {
           stopSeq++;
           for (const o of stop.orders) {
             rows.push([
-              slot.label,
-              tripNo,
+              vehicle.vehicleNo,
+              leg.slotLabel,
               stopSeq,
               stop.areaCode,
               stop.areaLabel,
@@ -306,6 +306,7 @@
               o.fxTime,
               o.value,
               o.isReturn ? "Y" : "",
+              o.notes || "",
             ]);
           }
         }
@@ -315,55 +316,83 @@
     downloadText("trip-plan.csv", csv, "text/csv;charset=utf-8");
   }
 
+  function escapeHtml(s) {
+    return String(s === undefined || s === null ? "" : s).replace(
+      /[&<>"']/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    );
+  }
+
   function buildPrintReportHtml(runResult, dateLabel) {
-    let tripNo = 0;
-    const sections = [];
-    for (const slot of runResult.plan.slots) {
-      for (const trip of slot.trips) {
-        tripNo++;
-        let seq = 0;
-        const orderList = [];
-        for (const stop of trip.stops) {
-          for (const o of stop.orders) {
-            seq++;
-            orderList.push(`${o.order}(${seq})${o.isReturn ? " [RETURN]" : ""}`);
+    const vehicleBlocks = runResult.plan.vehicles.map((vehicle) => {
+      const legBlocks = vehicle.legs
+        .map((leg) => {
+          if (!leg.trip) {
+            return `<p class="leg-empty"><b>${leg.slotLabel} (${leg.window}):</b> no run</p>`;
           }
-        }
-        const destLabel = trip.stops
-          .map((s) => s.areaCode)
-          .filter((v, i, arr) => arr.indexOf(v) === i)
-          .join(" | ");
-        sections.push(`
-          <div class="trip-block">
-            <p><b>Trip:</b> ${tripNo} &nbsp;&nbsp; <b>Slot:</b> ${slot.label} (${slot.window})</p>
-            <p><b>Destination (areas):</b> ${destLabel}</p>
-            <p><b>Stops (farthest → nearest):</b> ${trip.stops
-              .map((s) => `${s.areaCode} (${s.distanceKm}km)`)
-              .join(" → ")}</p>
-            <p><b>Orders:</b><br>${orderList.join(" , ")}</p>
-            <p><b>Total CBM:</b> ${trip.totalCbm.toFixed(2)} &nbsp; <b>Total Fixing Minutes:</b> ${Math.round(
-          trip.totalFxMinutes
-        )} &nbsp; <b>Est. Total Trip Time:</b> ${trip.totalMinutes} min (budget ${
-          trip.budgetMinutes
-        } min)${trip.overBudget ? ' <span class="warn">OVER BUDGET</span>' : ""}</p>
-            <p><b>Total Value:</b> ${trip.totalValue.toFixed(2)} &nbsp; <b>Orders:</b> ${trip.orderCount}</p>
-          </div>
-          <hr/>
-        `);
-      }
-    }
+          const trip = leg.trip;
+          let seq = 0;
+          const orderList = [];
+          const noteLines = [];
+          for (const stop of trip.stops) {
+            for (const o of stop.orders) {
+              seq++;
+              orderList.push(`${escapeHtml(o.order)}(${seq})${o.isReturn ? " [RETURN]" : ""}`);
+              if (o.notes) {
+                noteLines.push(
+                  `<span class="note-badge">${escapeHtml(o.order)}: ${escapeHtml(o.notes)}</span>`
+                );
+              }
+            }
+          }
+          const destLabel = trip.stops
+            .map((s) => s.areaCode)
+            .filter((v, i, arr) => arr.indexOf(v) === i)
+            .join(" | ");
+          return `
+            <div class="leg-block">
+              <p><b>${leg.slotLabel} (${leg.window})</b> — ${destLabel}
+                ${trip.longHaul ? ' <span class="warn">TOO FAR FOR ONE SLOT</span>' : trip.overBudget ? ' <span class="warn">OVER BUDGET</span>' : ""}
+              </p>
+              <p class="stops">Stops (farthest → nearest): ${trip.stops
+                .map((s) => `${s.areaCode} (${s.distanceKm}km)`)
+                .join(" → ")}</p>
+              <p class="orders">Orders: ${orderList.join(" , ")}</p>
+              ${noteLines.length ? `<p class="notes">${noteLines.join(" ")}</p>` : ""}
+              <p class="totals">CBM: ${trip.totalCbm.toFixed(2)} &nbsp; Fixing min: ${Math.round(
+            trip.totalFxMinutes
+          )} &nbsp; Est. time: ${trip.totalMinutes}/${trip.budgetMinutes} min &nbsp; Value: ${trip.totalValue.toFixed(
+            2
+          )} &nbsp; Orders: ${trip.orderCount}${trip.returnCount ? ` (${trip.returnCount} return)` : ""}</p>
+            </div>`;
+        })
+        .join("\n");
+      return `
+        <div class="trip-block">
+          <h2>Trip ${vehicle.vehicleNo}</h2>
+          ${legBlocks}
+        </div>
+        <hr/>`;
+    });
+
     return `<!doctype html>
 <html><head><meta charset="utf-8"><title>Trip Plan ${dateLabel || ""}</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 13px; padding: 24px; }
   h1 { font-size: 20px; text-align:center; }
+  h2 { font-size: 16px; color: #15479b; margin-bottom: 6px; }
   .trip-block { margin-bottom: 10px; }
+  .leg-block { margin: 6px 0 10px 10px; padding-left: 10px; border-left: 3px solid #d7dee8; }
+  .leg-empty { margin: 6px 0 10px 10px; padding-left: 10px; color: #8a97ad; border-left: 3px solid #eef2f9; }
+  .stops { color: #46536b; }
+  .notes { margin-top: 4px; }
+  .note-badge { display: inline-block; background: #fff3b0; border: 1px solid #e0c200; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; font-size: 12px; }
   .warn { color: #c62828; font-weight: bold; }
   hr { border: none; border-top: 1px solid #ccc; margin: 14px 0; }
 </style>
 </head><body>
 <h1>Trip Plan${dateLabel ? " - " + dateLabel : ""}</h1>
-${sections.join("\n")}
+${vehicleBlocks.join("\n")}
 </body></html>`;
   }
 
@@ -468,7 +497,42 @@ ${sections.join("\n")}
     ]);
   }
 
-  function buildTripCard(trip, tripNo) {
+  function buildNoFeasibleSlotSection(orders) {
+    if (!orders.length) return null;
+    return el("div", { class: "breaks-section breaks-unresolved" }, [
+      el("div", { class: "breaks-section-title" }, [
+        `⚠ ${orders.length} order(s) request a delivery time that doesn't fit any configured slot`,
+      ]),
+      ...orders.map((o) =>
+        el("div", { class: "breaks-unresolved-row" }, [
+          el("span", { class: "breaks-unresolved-raw" }, [
+            `${o.order}: "${o.notes}"${o.notePreferenceLabel ? " → " + o.notePreferenceLabel : ""}`,
+          ]),
+        ])
+      ),
+      el("div", { class: "breaks-hint" }, [
+        "Adjust the slot windows in Settings, or deliver these separately.",
+      ]),
+    ]);
+  }
+
+  function notesForLeg(trip) {
+    const notes = [];
+    for (const stop of trip.stops) {
+      for (const o of stop.orders) {
+        if (o.notes) notes.push({ order: o.order, note: o.notes });
+      }
+    }
+    return notes;
+  }
+
+  function buildLegBlock(leg) {
+    if (!leg.trip) {
+      return el("div", { class: "breaks-leg breaks-leg-empty" }, [
+        el("div", { class: "breaks-leg-head" }, [`${leg.slotLabel} (${leg.window})`, " — no run"]),
+      ]);
+    }
+    const trip = leg.trip;
     const stopsText = trip.stops
       .map(
         (s) =>
@@ -483,9 +547,17 @@ ${sections.join("\n")}
       copyBtn.textContent = "Copied!";
       setTimeout(() => (copyBtn.textContent = "Copy order #s"), 1200);
     });
-    return el("div", { class: "breaks-trip-card" + (trip.overBudget ? " breaks-over" : "") }, [
-      el("div", { class: "breaks-trip-head" }, [
-        el("b", {}, [`Trip ${tripNo}`]),
+    const legNotes = notesForLeg(trip);
+    const notesBlock = legNotes.length
+      ? el(
+          "div",
+          { class: "breaks-leg-notes" },
+          legNotes.map((n) => el("div", { class: "breaks-note-badge" }, [`${n.order}: ${n.note}`]))
+        )
+      : null;
+    return el("div", { class: "breaks-leg" + (trip.overBudget ? " breaks-over" : "") }, [
+      el("div", { class: "breaks-leg-head" }, [
+        el("b", {}, [`${leg.slotLabel} (${leg.window})`]),
         ` — ${trip.orderCount} orders${trip.returnCount ? ` (${trip.returnCount} return pickups)` : ""}, ${trip.totalCbm.toFixed(
           2
         )} CBM, ${trip.totalMinutes}/${trip.budgetMinutes} min`,
@@ -496,22 +568,28 @@ ${sections.join("\n")}
           : null,
       ]),
       el("div", { class: "breaks-trip-stops" }, [stopsText]),
+      notesBlock,
       copyBtn,
     ]);
   }
 
-  function buildSlotSection(slot) {
-    const cards = slot.trips.map((t, i) => buildTripCard(t, i + 1));
-    return el("div", { class: "breaks-section" }, [
-      el("div", { class: "breaks-section-title" }, [`${slot.label} (${slot.window}) — ${slot.trips.length} trip(s)`]),
-      ...cards,
+  function buildVehicleCard(vehicle) {
+    const legs = vehicle.legs.map(buildLegBlock);
+    return el("div", { class: "breaks-vehicle-card" + (vehicle.overBudget ? " breaks-over" : "") }, [
+      el("div", { class: "breaks-vehicle-head" }, [
+        el("b", {}, [`Trip ${vehicle.vehicleNo}`]),
+        ` — ${vehicle.orderCount} orders for the day${
+          vehicle.returnCount ? ` (${vehicle.returnCount} return pickups)` : ""
+        }`,
+      ]),
+      ...legs,
     ]);
   }
 
   function renderResults(container, runResult) {
     container.innerHTML = "";
     const summary = el("div", { class: "breaks-summary" }, [
-      `${runResult.totalCount} total → ${runResult.keptCount} planned, ${runResult.excluded.length} excluded, ${runResult.unresolved.length} unmapped`,
+      `${runResult.totalCount} total → ${runResult.keptCount} planned, ${runResult.excluded.length} excluded, ${runResult.unresolved.length} unmapped, ${runResult.noFeasibleSlot.length} no-slot-fits`,
     ]);
     container.appendChild(summary);
 
@@ -524,9 +602,16 @@ ${sections.join("\n")}
     const excludedSection = buildExcludedSection(runResult.excluded);
     if (excludedSection) container.appendChild(excludedSection);
 
-    for (const slot of runResult.plan.slots) {
-      container.appendChild(buildSlotSection(slot));
-    }
+    const noFeasibleSection = buildNoFeasibleSlotSection(runResult.noFeasibleSlot);
+    if (noFeasibleSection) container.appendChild(noFeasibleSection);
+
+    const vehiclesSection = el("div", { class: "breaks-section" }, [
+      el("div", { class: "breaks-section-title" }, [
+        `Trips (each runs Morning → Afternoon → Evening): ${runResult.plan.vehicles.length}`,
+      ]),
+      ...runResult.plan.vehicles.map(buildVehicleCard),
+    ]);
+    container.appendChild(vehiclesSection);
 
     const exportRow = el("div", { class: "breaks-export-row" }, [
       el("button", { class: "breaks-btn", onclick: () => exportCsv(runResult) }, ["Export CSV"]),

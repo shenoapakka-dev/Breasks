@@ -45,12 +45,23 @@ whatever the ETM page already shows you.
      value the bundled area-code table doesn't recognize. Pick the right
      area from the dropdown once and click **Save** — it's remembered for
      next time (stored in this browser via `chrome.storage`).
-   - **Excluded**: shows how many orders were dropped as Sales Returns or
-     excluded order types (UK/QT/MT by default), and why.
-   - **Morning / Afternoon / Evening** sections: each slot's trips, with
-     stop sequence (farthest → nearest from the warehouse), CBM load,
-     estimated time vs. the slot's time budget, and a warning badge if a
-     trip is over capacity or over time.
+   - **Excluded**: order types dropped entirely (UK/QT/MT by default).
+     Sales Return orders (Notes with "R", or an `RW` order number) are
+     **not** excluded — they stay on the route and are tagged so the team
+     collects the return at that stop; look for a yellow note badge.
+   - **No-slot-fits** (yellow box): an order's Notes asked for a delivery
+     time no configured slot can satisfy (e.g. "after 9pm") — adjust the
+     slot windows in Settings or handle these separately.
+   - **Trips**: each trip is one vehicle for the day, shown as up to 3
+     legs — Morning, Afternoon, Evening — run back-to-back with a return
+     to the warehouse between each. A leg shows its stop sequence
+     (farthest → nearest), CBM load, estimated time vs. that slot's
+     budget, any delivery-time notes (highlighted), and a warning if it's
+     over capacity/time or simply too far to fit any single slot.
+   - Delivery-time requests in Notes steer which slot an order lands in:
+     a note containing "MORNING"/"AFTERNOON"/"EVENING", or "BEFORE Xpm"/
+     "AFTER Xpm", restricts that order to the slot(s) compatible with it
+     instead of letting the area-based balancer place it anywhere.
 5. Export:
    - **Export CSV** — one row per order with its slot/trip/stop assignment,
      for Excel.
