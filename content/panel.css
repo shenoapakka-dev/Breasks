@@ -229,3 +229,17 @@
   border: 1px solid #c7d2e0;
   border-radius: 6px;
 }
+
+#breaks-panel .breaks-debug {
+  background: #1a2434;
+  color: #d6e4ff;
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}

@@ -113,6 +113,35 @@
     );
   }
 
+  // No DevTools needed: dumps the header row + first couple of body rows
+  // (both their visible text AND raw inner HTML per cell) into the panel
+  // itself, so a screenshot of the panel is enough to diagnose a column
+  // mismatch without anyone having to open the browser console.
+  function debugDumpTable() {
+    const table = findOrdersTableInDom();
+    if (!table) return { ok: false, text: "Orders table not found on this page." };
+    const ths = Array.from(table.querySelectorAll("thead th"));
+    const lines = [];
+    lines.push("HEADERS (index: text):");
+    ths.forEach((th, i) => lines.push(`  [${i}] "${(th.textContent || "").trim()}"`));
+    lines.push("");
+    lines.push("headerMap (normalized -> index): " + JSON.stringify(readHeaderMap(table)));
+    lines.push("");
+    const body = table.querySelector("tbody");
+    const firstRows = body ? Array.from(body.querySelectorAll("tr")).slice(0, 2) : [];
+    if (!firstRows.length) lines.push("(no rows currently rendered in the table body)");
+    firstRows.forEach((tr, rIdx) => {
+      lines.push(`ROW ${rIdx}:`);
+      Array.from(tr.children).forEach((td, i) => {
+        const text = (td.textContent || "").trim();
+        const html = (td.innerHTML || "").slice(0, 150);
+        lines.push(`  [${i}] text="${text}"  html="${html}"`);
+      });
+      lines.push("");
+    });
+    return { ok: true, text: lines.join("\n") };
+  }
+
   function findNextPageControl(table) {
     // Typical DataTables pagination: a container near the table with an
     // <a>/<li> whose text is "Next" and whose parent isn't ".disabled".
@@ -902,6 +931,23 @@ ${blocks.join("\n")}
           },
         },
         ["Use Imported Trip Report"]
+      ),
+      el(
+        "button",
+        {
+          class: "breaks-btn",
+          onclick: () => {
+            const dump = debugDumpTable();
+            results.innerHTML = "";
+            results.appendChild(
+              el("div", { class: "breaks-section" }, [
+                el("div", { class: "breaks-section-title" }, ["Debug: table structure (screenshot this)"]),
+                el("pre", { class: "breaks-debug" }, [dump.text]),
+              ])
+            );
+          },
+        },
+        ["Debug Table"]
       ),
     ]);
     const results = el("div", { class: "breaks-results" }, []);
