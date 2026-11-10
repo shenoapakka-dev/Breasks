@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Breaks – Import Trip Report</title>
+  <link rel="stylesheet" href="import.css" />
+</head>
+<body>
+  <h1>Import Trip Report PDF</h1>
+  <p class="sub">
+    Upload the Trip Report PDF exported from ETM. This reads each trip's
+    <b>Trip #</b> and <b>Order numbers</b> from the PDF, and remembers that
+    mapping in this browser. Next time you run <b>Scan + Build Plan</b> on
+    the ETM List Orders page, click <b>Use Imported Trip Report</b> there to
+    cross-check it against the live Notes, fixing time, volume and area for
+    every order, and get one clean printable table.
+  </p>
+
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept="application/pdf" />
+    <p>Click to choose a PDF, or drag one here</p>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <div id="preview" class="preview"></div>
+
+  <div class="actions" id="actions" style="display:none">
+    <button id="saveBtn">Save this mapping</button>
+    <span id="saveStatus"></span>
+  </div>
+
+  <script type="module" src="import.js"></script>
+</body>
+</html>

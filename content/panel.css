@@ -186,7 +186,8 @@
 #breaks-panel .breaks-leg-notes {
   margin-bottom: 5px;
 }
-#breaks-panel .breaks-note-badge {
+#breaks-panel .breaks-note-badge,
+#breaks-panel .note-badge {
   display: inline-block;
   background: #fff3b0;
   border: 1px solid #e0c200;
@@ -195,6 +196,11 @@
   margin: 2px 4px 2px 0;
   font-size: 11px;
   color: #5a4600;
+}
+#breaks-panel .breaks-order-line {
+  font-size: 12px;
+  padding: 2px 0;
+  border-bottom: 1px solid #f0f3f8;
 }
 #breaks-panel .breaks-warn {
   color: #c62828;

@@ -39,5 +39,11 @@
       "css": ["content/panel.css"],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["import/import.html", "import/import.js", "import/import.css", "lib/pdfjs/*"],
+      "matches": ["https://etm.panemirates.ae:8443/*"]
+    }
   ]
 }

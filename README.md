@@ -78,7 +78,29 @@ whatever the ETM page already shows you.
 > for you to apply through ETM's own trip-assignment screen, or via the
 > CSV/clipboard export above.
 
-## 3. Settings (Options page)
+## 3. Import an existing Trip Report PDF instead
+
+If trips are already assigned in ETM (the planner's own Trip Report PDF),
+you can cross-check that assignment against the live List Orders data
+instead of generating a new plan from scratch:
+
+1. Click **Import Trip Report PDF** in the panel - opens a page where you
+   drop/select the PDF. It reads each trip's number, team and order
+   numbers straight out of the PDF text (nothing is uploaded anywhere,
+   this runs entirely in your browser) and saves that mapping locally.
+2. Back on the List Orders page, click **Use Imported Trip Report**. It
+   matches each PDF-listed order against the current live row (Notes,
+   fixing time, volume, value, area) and builds one table grouped by the
+   PDF's own trip numbers.
+3. A trip is flagged **MIXED AREAS** if its orders resolve to area codes
+   that are far apart (>15km) - a sanity check on trips that may have
+   been assigned inconsistently, since the PDF only labels a trip's
+   overall destination (e.g. "AUH | 317|319"), not which order is where.
+4. Orders listed in the PDF but no longer found on the List Orders page
+   (already delivered/removed) are called out separately.
+5. Same CSV / per-trip-or-all Print-to-PDF export as the generated plan.
+
+## 4. Settings (Options page)
 
 Click the ⚙ icon in the panel header, or `chrome://extensions` → Breaks
 → **Details** → **Extension options**.
@@ -96,7 +118,7 @@ Click the ⚙ icon in the panel header, or `chrome://extensions` → Breaks
 | Area mapping overrides | — | Built up as you resolve unmapped areas from the panel; removable here. |
 | Area code reference | — | Full searchable table of every area code bundled in the extension, with its approximate km from the warehouse. |
 
-## 4. How the plan is built (what to know before trusting it)
+## 5. How the plan is built (what to know before trusting it)
 
 - **Area → distance table**: built from the Area Codes reference you
   provided (all emirates). The `distanceKm` per area is a **hand-estimated
@@ -125,7 +147,7 @@ Click the ⚙ icon in the panel header, or `chrome://extensions` → Breaks
   `MT` by default) are removed before planning, and shown in the Excluded
   summary so nothing disappears silently.
 
-## 5. Project structure
+## 6. Project structure
 
 ```
 manifest.json            MV3 manifest
@@ -134,18 +156,22 @@ data/
   source/                the original Area Codes xlsx (kept for re-generation)
   area_codes.json         generated area-code + distance reference (human-readable)
   area_codes.js            same data as a content-script-loadable global
-lib/planner.js             core planning engine (filter, resolve, bin-pack, sequence)
+lib/
+  planner.js                core planning engine (filter, resolve, bin-pack, sequence, cross-reference)
+  pdfjs/                    vendored pdf.js (text extraction for the PDF importer)
 content/
   page-bridge.js            runs in the page's own JS context to read DataTables fast
   content.js                scraping orchestration + floating panel UI
   panel.css                 panel styling
+import/
+  import.html/.js/.css      standalone page: drop a Trip Report PDF, parses it with pdf.js
 options/
   options.html/.js/.css     settings page
 scripts/build_area_data.py  regenerates data/area_codes.(json|js) from the source xlsx
 icons/                      toolbar icons
 ```
 
-## 6. Re-generating the area/distance data
+## 7. Re-generating the area/distance data
 
 If you get a better area-code table or more accurate distances later:
 

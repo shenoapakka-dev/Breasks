@@ -643,6 +643,182 @@ ${vehicleBlocks.join("\n")}
     container.appendChild(exportRow);
   }
 
+  // ---------- imported Trip Report (PDF) cross-reference ----------
+
+  function orderLineHtml(o, slotLabel) {
+    const parts = [escapeHtml(o.order)];
+    if (slotLabel) parts.push(slotLabel);
+    if (o.isReturn) parts.push("RETURN PICKUP");
+    let line = parts.join(" | ");
+    if (o.notes) line += ` <span class="note-badge">${escapeHtml(o.notes)}</span>`;
+    return line;
+  }
+
+  function buildImportedTripCard(trip) {
+    const orderRows = trip.orders.map((o) =>
+      el("div", { class: "breaks-order-line", html: orderLineHtml(o) })
+    );
+    return el(
+      "div",
+      { class: "breaks-vehicle-card" + (trip.mixedAreas ? " breaks-over" : "") },
+      [
+        el("div", { class: "breaks-vehicle-head" }, [
+          el("b", {}, [`Trip ${trip.tripNumber}`]),
+          ` — ${trip.teamName || trip.team || ""} — ${trip.destination || ""} — ${trip.orders.length} orders, ${trip.totalCbm.toFixed(
+            2
+          )} CBM${trip.returnCount ? `, ${trip.returnCount} return pickups` : ""}`,
+          trip.mixedAreas
+            ? el("span", { class: "breaks-warn" }, [
+                ` ⚠ MIXED AREAS (${trip.areaCodes.join(", ")}, ~${trip.distanceSpreadKm}km apart) — double-check this trip`,
+              ])
+            : null,
+        ]),
+        ...orderRows,
+      ]
+    );
+  }
+
+  function exportImportedCsv(crossRefResult) {
+    const rows = [
+      [
+        "Trip#",
+        "Team",
+        "TeamName",
+        "Destination(PDF)",
+        "Order",
+        "AreaCode",
+        "Customer",
+        "Volume",
+        "FxTime",
+        "Value",
+        "ReturnPickup",
+        "Notes",
+      ],
+    ];
+    for (const trip of crossRefResult.trips) {
+      for (const o of trip.orders) {
+        rows.push([
+          trip.tripNumber,
+          trip.team || "",
+          trip.teamName || "",
+          trip.destination || "",
+          o.order,
+          o.resolvedAreaCode || "",
+          o.customer,
+          o.volume,
+          o.fxTime,
+          o.value,
+          o.isReturn ? "Y" : "",
+          o.notes || "",
+        ]);
+      }
+    }
+    const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
+    downloadText("imported-trip-report.csv", csv, "text/csv;charset=utf-8");
+  }
+
+  function buildImportedPrintReportHtml(crossRefResult, dateLabel, onlyTripNo) {
+    const trips = onlyTripNo
+      ? crossRefResult.trips.filter((t) => t.tripNumber === onlyTripNo)
+      : crossRefResult.trips;
+
+    const blocks = trips.map((trip) => {
+      const orderLines = trip.orders.map((o) => `<div class="order-line">${orderLineHtml(o)}</div>`).join("\n");
+      return `
+        <div class="trip-block">
+          <h2>Trip ${trip.tripNumber} — ${escapeHtml(trip.teamName || trip.team || "")}</h2>
+          <p class="stops">Destination (from ETM): ${escapeHtml(trip.destination || "")}
+            ${
+              trip.mixedAreas
+                ? ` <span class="warn">MIXED AREAS (${trip.areaCodes.join(", ")}, ~${trip.distanceSpreadKm}km apart)</span>`
+                : ""
+            }
+          </p>
+          <div class="orders">${orderLines}</div>
+          <p class="totals">CBM: ${trip.totalCbm.toFixed(2)} &nbsp; Fixing min: ${Math.round(
+        trip.totalFxMinutes
+      )} &nbsp; Value: ${trip.totalValue.toFixed(2)} &nbsp; Orders: ${trip.orders.length}${
+        trip.returnCount ? ` (${trip.returnCount} return)` : ""
+      }</p>
+        </div>`;
+    });
+
+    return `<!doctype html>
+<html><head><meta charset="utf-8"><title>Imported Trip Report ${dateLabel || ""}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 13px; padding: 24px; }
+  h1 { font-size: 20px; text-align:center; }
+  h2 { font-size: 16px; color: #15479b; margin-bottom: 6px; }
+  .trip-block { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #ccc; page-break-after: always; }
+  .trip-block:last-child { page-break-after: auto; border-bottom: none; }
+  .stops { color: #46536b; }
+  .orders { margin: 4px 0; }
+  .order-line { font-size: 12px; padding: 1px 0; }
+  .note-badge { display: inline-block; background: #fff3b0; border: 1px solid #e0c200; border-radius: 4px; padding: 1px 6px; margin-left: 4px; font-size: 11px; }
+  .warn { color: #c62828; font-weight: bold; }
+</style>
+</head><body>
+<h1>Imported Trip Report${dateLabel ? " - " + dateLabel : ""}</h1>
+${blocks.join("\n")}
+</body></html>`;
+  }
+
+  function openImportedPrintReport(crossRefResult, onlyTripNo) {
+    const html = buildImportedPrintReportHtml(crossRefResult, new Date().toISOString().slice(0, 10), onlyTripNo);
+    const w = window.open("", "_blank");
+    if (!w) {
+      alert("Please allow pop-ups to open the print view.");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }
+
+  function renderImportedResults(container, crossRefResult) {
+    container.innerHTML = "";
+    const mixedCount = crossRefResult.trips.filter((t) => t.mixedAreas).length;
+    const summary = el("div", { class: "breaks-summary" }, [
+      `${crossRefResult.matchedCount} orders matched to ${crossRefResult.trips.length} imported trips, ${crossRefResult.notFoundInLive.length} not found live, ${mixedCount} trip(s) with mixed areas`,
+    ]);
+    container.appendChild(summary);
+
+    if (crossRefResult.notFoundInLive.length) {
+      container.appendChild(
+        el("div", { class: "breaks-section" }, [
+          el("div", { class: "breaks-section-title" }, [
+            `${crossRefResult.notFoundInLive.length} order(s) from the PDF were not found on the current List Orders page (may be delivered/removed already)`,
+          ]),
+        ])
+      );
+    }
+
+    const tripsSection = el("div", { class: "breaks-section" }, [
+      el("div", { class: "breaks-section-title" }, [`Imported trips: ${crossRefResult.trips.length}`]),
+      ...crossRefResult.trips.map(buildImportedTripCard),
+    ]);
+    container.appendChild(tripsSection);
+
+    const tripSelect = el("select", { class: "breaks-select breaks-trip-select" }, [
+      el("option", { value: "" }, ["All trips (each on its own page)"]),
+      ...crossRefResult.trips.map((t) => el("option", { value: String(t.tripNumber) }, [`Trip ${t.tripNumber} only`])),
+    ]);
+    const exportRow = el("div", { class: "breaks-export-row" }, [
+      el("button", { class: "breaks-btn", onclick: () => exportImportedCsv(crossRefResult) }, ["Export CSV"]),
+      tripSelect,
+      el(
+        "button",
+        {
+          class: "breaks-btn",
+          onclick: () =>
+            openImportedPrintReport(crossRefResult, tripSelect.value ? parseInt(tripSelect.value, 10) : null),
+        },
+        ["Print / Save PDF"]
+      ),
+    ]);
+    container.appendChild(exportRow);
+  }
+
   function buildPanel() {
     const panel = el("div", { id: "breaks-panel" }, []);
     const header = el("div", { class: "breaks-header" }, [
@@ -684,6 +860,45 @@ ${vehicleBlocks.join("\n")}
           },
         },
         ["Scan + Build Plan"]
+      ),
+      el(
+        "button",
+        {
+          class: "breaks-btn",
+          onclick: () => window.open(chrome.runtime.getURL("import/import.html"), "_blank"),
+        },
+        ["Import Trip Report PDF"]
+      ),
+      el(
+        "button",
+        {
+          class: "breaks-btn",
+          onclick: async () => {
+            const ui = { setStatus: (t) => (status.textContent = t) };
+            if (!lastOrders.length) {
+              const { orders } = await scrapeOrders(ui);
+              lastOrders = orders;
+            }
+            chrome.storage.local.get(["importedTripMap", "importedTripMapDate"], (data) => {
+              if (!data.importedTripMap || !Object.keys(data.importedTripMap).length) {
+                ui.setStatus('No imported Trip Report yet - click "Import Trip Report PDF" first.');
+                return;
+              }
+              const crossRef = Planner.crossReferenceImport(
+                data.importedTripMap,
+                lastOrders,
+                AREA_DATA,
+                settings,
+                areaOverrides
+              );
+              renderImportedResults(results, crossRef);
+              ui.setStatus(
+                `Cross-checked imported Trip Report (${data.importedTripMapDate || "unknown date"}) against ${lastOrders.length} live orders.`
+              );
+            });
+          },
+        },
+        ["Use Imported Trip Report"]
       ),
     ]);
     const results = el("div", { class: "breaks-results" }, []);
