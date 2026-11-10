@@ -63,20 +63,38 @@
     if (colCount <= 0) return { ok: false, reason: "no-header-map" };
 
     const count = dt.rows().count();
-    const columns = [];
-    for (let i = 0; i < colCount; i++) {
-      try {
-        columns[i] = dt.column(i).data().toArray();
-      } catch (e) {
-        columns[i] = new Array(count).fill("");
-      }
-    }
 
+    // Prefer the column's *rendered display* value, not its raw data: a
+    // column like Order is commonly configured with data: <id> plus a
+    // render callback that wraps it in a link ("<a ...>BR0034978</a>"),
+    // in which case column().data() returns the raw id (or an object),
+    // not the order number itself. cell(r, i).render('display') runs
+    // that same render callback DataTables uses to draw the table, so it
+    // matches what's actually on screen. Falls back to raw data if a
+    // given cell has no render function (render() just returns data()
+    // unchanged then) or throws for any reason.
+    let useRawColumns = null; // lazily built only if render() isn't usable at all
     const rows = [];
     for (let r = 0; r < count; r++) {
       const row = [];
       for (let i = 0; i < colCount; i++) {
-        row[i] = cellText(columns[i] ? columns[i][r] : "");
+        let v;
+        try {
+          v = dt.cell(r, i).render("display");
+        } catch (e) {
+          if (!useRawColumns) {
+            useRawColumns = [];
+            for (let j = 0; j < colCount; j++) {
+              try {
+                useRawColumns[j] = dt.column(j).data().toArray();
+              } catch (e2) {
+                useRawColumns[j] = new Array(count).fill("");
+              }
+            }
+          }
+          v = useRawColumns[i] ? useRawColumns[i][r] : "";
+        }
+        row[i] = cellText(v);
       }
       rows.push(row);
     }
