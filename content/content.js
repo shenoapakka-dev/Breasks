@@ -208,10 +208,23 @@
 
   function buildFieldIndex(headerMap) {
     const idx = {};
+    const keys = Object.keys(headerMap);
     for (const field of Object.keys(FIELD_ALIASES)) {
       for (const alias of FIELD_ALIASES[field]) {
         if (headerMap[alias] !== undefined) {
           idx[field] = headerMap[alias];
+          break;
+        }
+        // ETM bakes a filter row (text input or a <select> with many
+        // <option>s) into each <th>, so th.textContent often comes back
+        // as the real label with extra characters or a whole dropdown's
+        // option list appended straight after it - e.g. "Order" reads as
+        // "Orderx", "SalesOffice" reads as "SalesOfficeAllOffices...".
+        // The real label is always the prefix, so match on that instead
+        // of requiring an exact (and therefore fragile) equality.
+        const prefixMatch = keys.find((k) => k.indexOf(alias) === 0);
+        if (prefixMatch !== undefined) {
+          idx[field] = headerMap[prefixMatch];
           break;
         }
       }
