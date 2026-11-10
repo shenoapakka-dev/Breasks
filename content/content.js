@@ -352,7 +352,15 @@
           return `
             <div class="leg-block">
               <p><b>${leg.slotLabel} (${leg.window})</b> — ${destLabel}
-                ${trip.longHaul ? ' <span class="warn">TOO FAR FOR ONE SLOT</span>' : trip.overBudget ? ' <span class="warn">OVER BUDGET</span>' : ""}
+                ${
+                  trip.longHaul
+                    ? ' <span class="warn">TOO FAR FOR ONE SLOT</span>'
+                    : trip.totalCbm > settings.vehicleCbmCapacity
+                    ? ' <span class="warn">OVER CBM CAPACITY</span>'
+                    : trip.overBudget
+                    ? ' <span class="warn">RUNS PAST SLOT TIME</span>'
+                    : ""
+                }
               </p>
               <p class="stops">Stops (farthest → nearest): ${trip.stops
                 .map((s) => `${s.areaCode} (${s.distanceKm}km)`)
@@ -563,8 +571,10 @@ ${vehicleBlocks.join("\n")}
         )} CBM, ${trip.totalMinutes}/${trip.budgetMinutes} min`,
         trip.longHaul
           ? el("span", { class: "breaks-warn" }, [" TOO FAR FOR ONE SLOT — needs a dedicated/longer trip"])
+          : trip.totalCbm > settings.vehicleCbmCapacity
+          ? el("span", { class: "breaks-warn" }, [" OVER CBM CAPACITY"])
           : trip.overBudget
-          ? el("span", { class: "breaks-warn" }, [" OVER CAPACITY/TIME"])
+          ? el("span", { class: "breaks-warn" }, [" RUNS PAST SLOT TIME — one vehicle, just takes longer"])
           : null,
       ]),
       el("div", { class: "breaks-trip-stops" }, [stopsText]),
