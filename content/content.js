@@ -223,7 +223,10 @@
 
   async function scrapeOrders(ui) {
     ui.setStatus("Reading orders from the page...");
-    const fast = await requestBridgeScrape(2500);
+    // The fast path now makes DataTables render every row to the DOM
+    // before reading it (for correctness - see page-bridge.js), which
+    // can take a few seconds for ~1,600+ rows, so give it real room.
+    const fast = await requestBridgeScrape(15000);
     if (fast.ok) {
       ui.setStatus(`Loaded ${fast.count} orders (fast path).`);
       return rowsToOrders(fast.headerMap, fast.rows);

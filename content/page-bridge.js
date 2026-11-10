@@ -4,9 +4,16 @@
  * extension's isolated-world content script purely via CustomEvents on
  * `document`, since the two worlds do not share object references.
  *
- * This lets us pull the FULL order list (all ~1,675 rows) in one shot
- * through the DataTables column API instead of clicking "Next" through
- * ~112 pages, when the table turns out to be client-side DataTables.
+ * Strategy: rather than pulling DataTables' internal column/cell *data*
+ * (which can silently diverge from what's actually on screen - e.g. an
+ * Order column configured with an id as its data and a render callback
+ * that draws the visible link text, where data() and even render()
+ * don't reliably hand back that visible text), we tell DataTables to
+ * show ALL rows on one page, let it redraw, and then read the real
+ * rendered <td> text straight out of the DOM - the exact same way a
+ * person reading the table would, and the exact same method the slow
+ * per-page fallback in content.js uses. This keeps the speed benefit
+ * (no clicking through ~100+ pages) while guaranteeing correctness.
  */
 (function () {
   "use strict";
@@ -34,86 +41,75 @@
     return null;
   }
 
-  function cellText(v) {
-    if (v === null || v === undefined) return "";
-    if (typeof v === "string" && /</.test(v)) {
-      const tmp = document.createElement("div");
-      tmp.innerHTML = v;
-      return tmp.textContent.trim();
-    }
-    return String(v).trim();
+  function readRenderedRows(table) {
+    const body = table.querySelector("tbody");
+    if (!body) return [];
+    return Array.from(body.querySelectorAll("tr")).map((tr) =>
+      Array.from(tr.children).map((td) => (td.textContent || "").trim())
+    );
   }
 
-  function extractViaDataTables(table) {
+  function showAllRowsAndRead(table, dt, totalCount) {
+    return new Promise((resolve) => {
+      const jq = window.jQuery || window.$;
+      let settled = false;
+      const originalLen = dt.page.len();
+
+      function finish() {
+        if (settled) return;
+        settled = true;
+        const rows = readRenderedRows(table);
+        try {
+          dt.page.len(originalLen).draw(false);
+        } catch (e) {
+          /* leave it as-is if restoring fails */
+        }
+        resolve(rows);
+      }
+
+      try {
+        jq(table).one("draw.dt", () => setTimeout(finish, 30));
+        dt.page.len(totalCount > 0 ? totalCount : 1).draw(false);
+      } catch (e) {
+        finish();
+        return;
+      }
+      // safety net in case draw.dt never fires (e.g. ajax error)
+      setTimeout(finish, 8000);
+    });
+  }
+
+  async function extractViaDataTables(table) {
     const jq = window.jQuery || window.$;
     if (!jq || !jq.fn || !jq.fn.dataTable) return { ok: false, reason: "no-jquery-datatables" };
     if (!jq.fn.dataTable.isDataTable(table)) return { ok: false, reason: "not-a-datatable" };
 
     const dt = jq(table).DataTable();
-    let isServerSide = false;
-    try {
-      const settings = dt.settings()[0];
-      isServerSide = !!(settings && settings.oFeatures && settings.oFeatures.bServerSide);
-    } catch (e) {
-      /* ignore */
-    }
-
     const map = headerMap(table);
     const colCount = Math.max(-1, ...Object.values(map)) + 1;
     if (colCount <= 0) return { ok: false, reason: "no-header-map" };
 
-    const count = dt.rows().count();
+    const total = dt.rows().count();
+    if (total <= 0) return { ok: false, reason: "no-rows" };
 
-    // Prefer the column's *rendered display* value, not its raw data: a
-    // column like Order is commonly configured with data: <id> plus a
-    // render callback that wraps it in a link ("<a ...>BR0034978</a>"),
-    // in which case column().data() returns the raw id (or an object),
-    // not the order number itself. cell(r, i).render('display') runs
-    // that same render callback DataTables uses to draw the table, so it
-    // matches what's actually on screen. Falls back to raw data if a
-    // given cell has no render function (render() just returns data()
-    // unchanged then) or throws for any reason.
-    let useRawColumns = null; // lazily built only if render() isn't usable at all
-    const rows = [];
-    for (let r = 0; r < count; r++) {
-      const row = [];
-      for (let i = 0; i < colCount; i++) {
-        let v;
-        try {
-          v = dt.cell(r, i).render("display");
-        } catch (e) {
-          if (!useRawColumns) {
-            useRawColumns = [];
-            for (let j = 0; j < colCount; j++) {
-              try {
-                useRawColumns[j] = dt.column(j).data().toArray();
-              } catch (e2) {
-                useRawColumns[j] = new Array(count).fill("");
-              }
-            }
-          }
-          v = useRawColumns[i] ? useRawColumns[i][r] : "";
-        }
-        row[i] = cellText(v);
-      }
-      rows.push(row);
+    const rows = await showAllRowsAndRead(table, dt, total);
+    if (rows.length < total) {
+      return { ok: false, reason: `incomplete-render:${rows.length}/${total}`, headerMap: map };
     }
 
-    return { ok: true, headerMap: map, rows, count, isServerSide };
+    return { ok: true, headerMap: map, rows, count: rows.length };
   }
 
-  document.addEventListener("breaks:scrape-request", function () {
+  document.addEventListener("breaks:scrape-request", async function () {
     let payload;
     try {
       const table = findOrdersTable();
       if (!table) {
         payload = { ok: false, error: "table-not-found" };
       } else {
-        const result = extractViaDataTables(table);
+        const result = await extractViaDataTables(table);
         if (!result.ok) {
           payload = { ok: false, error: result.reason, headerMap: headerMap(table) };
-        } else if (result.isServerSide) {
-          payload = { ok: false, error: "server-side-table", headerMap: result.headerMap };
         } else {
           payload = {
             ok: true,
