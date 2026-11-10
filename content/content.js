@@ -323,26 +323,28 @@
     );
   }
 
-  function buildPrintReportHtml(runResult, dateLabel) {
-    const vehicleBlocks = runResult.plan.vehicles.map((vehicle) => {
+  function buildPrintReportHtml(runResult, dateLabel, onlyVehicleNo) {
+    const vehicles = onlyVehicleNo
+      ? runResult.plan.vehicles.filter((v) => v.vehicleNo === onlyVehicleNo)
+      : runResult.plan.vehicles;
+
+    const vehicleBlocks = vehicles.map((vehicle) => {
       const legBlocks = vehicle.legs
         .map((leg) => {
           if (!leg.trip) {
             return `<p class="leg-empty"><b>${leg.slotLabel} (${leg.window}):</b> no run</p>`;
           }
           const trip = leg.trip;
-          let seq = 0;
-          const orderList = [];
-          const noteLines = [];
+          const orderLines = [];
           for (const stop of trip.stops) {
             for (const o of stop.orders) {
-              seq++;
-              orderList.push(`${escapeHtml(o.order)}(${seq})${o.isReturn ? " [RETURN]" : ""}`);
+              const parts = [escapeHtml(o.order), leg.slotLabel];
+              if (o.isReturn) parts.push("RETURN PICKUP");
+              let line = parts.join(" | ");
               if (o.notes) {
-                noteLines.push(
-                  `<span class="note-badge">${escapeHtml(o.order)}: ${escapeHtml(o.notes)}</span>`
-                );
+                line += ` <span class="note-badge">${escapeHtml(o.notes)}</span>`;
               }
+              orderLines.push(`<div class="order-line">${line}</div>`);
             }
           }
           const destLabel = trip.stops
@@ -365,8 +367,7 @@
               <p class="stops">Stops (farthest → nearest): ${trip.stops
                 .map((s) => `${s.areaCode} (${s.distanceKm}km)`)
                 .join(" → ")}</p>
-              <p class="orders">Orders: ${orderList.join(" , ")}</p>
-              ${noteLines.length ? `<p class="notes">${noteLines.join(" ")}</p>` : ""}
+              <div class="orders">${orderLines.join("\n")}</div>
               <p class="totals">CBM: ${trip.totalCbm.toFixed(2)} &nbsp; Fixing min: ${Math.round(
             trip.totalFxMinutes
           )} &nbsp; Est. time: ${trip.totalMinutes}/${trip.budgetMinutes} min &nbsp; Value: ${trip.totalValue.toFixed(
@@ -379,8 +380,7 @@
         <div class="trip-block">
           <h2>Trip ${vehicle.vehicleNo}</h2>
           ${legBlocks}
-        </div>
-        <hr/>`;
+        </div>`;
     });
 
     return `<!doctype html>
@@ -389,14 +389,15 @@
   body { font-family: Arial, sans-serif; font-size: 13px; padding: 24px; }
   h1 { font-size: 20px; text-align:center; }
   h2 { font-size: 16px; color: #15479b; margin-bottom: 6px; }
-  .trip-block { margin-bottom: 10px; }
+  .trip-block { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #ccc; page-break-after: always; }
+  .trip-block:last-child { page-break-after: auto; border-bottom: none; }
   .leg-block { margin: 6px 0 10px 10px; padding-left: 10px; border-left: 3px solid #d7dee8; }
   .leg-empty { margin: 6px 0 10px 10px; padding-left: 10px; color: #8a97ad; border-left: 3px solid #eef2f9; }
   .stops { color: #46536b; }
-  .notes { margin-top: 4px; }
-  .note-badge { display: inline-block; background: #fff3b0; border: 1px solid #e0c200; border-radius: 4px; padding: 1px 6px; margin: 2px 4px 2px 0; font-size: 12px; }
+  .orders { margin: 4px 0; }
+  .order-line { font-size: 12px; padding: 1px 0; }
+  .note-badge { display: inline-block; background: #fff3b0; border: 1px solid #e0c200; border-radius: 4px; padding: 1px 6px; margin-left: 4px; font-size: 11px; }
   .warn { color: #c62828; font-weight: bold; }
-  hr { border: none; border-top: 1px solid #ccc; margin: 14px 0; }
 </style>
 </head><body>
 <h1>Trip Plan${dateLabel ? " - " + dateLabel : ""}</h1>
@@ -404,8 +405,8 @@ ${vehicleBlocks.join("\n")}
 </body></html>`;
   }
 
-  function openPrintReport(runResult) {
-    const html = buildPrintReportHtml(runResult, new Date().toISOString().slice(0, 10));
+  function openPrintReport(runResult, onlyVehicleNo) {
+    const html = buildPrintReportHtml(runResult, new Date().toISOString().slice(0, 10), onlyVehicleNo);
     const w = window.open("", "_blank");
     if (!w) {
       alert("Please allow pop-ups to open the print view.");
@@ -623,9 +624,21 @@ ${vehicleBlocks.join("\n")}
     ]);
     container.appendChild(vehiclesSection);
 
+    const tripSelect = el("select", { class: "breaks-select breaks-trip-select" }, [
+      el("option", { value: "" }, ["All trips (each on its own page)"]),
+      ...runResult.plan.vehicles.map((v) => el("option", { value: String(v.vehicleNo) }, [`Trip ${v.vehicleNo} only`])),
+    ]);
     const exportRow = el("div", { class: "breaks-export-row" }, [
       el("button", { class: "breaks-btn", onclick: () => exportCsv(runResult) }, ["Export CSV"]),
-      el("button", { class: "breaks-btn", onclick: () => openPrintReport(runResult) }, ["Print / Save PDF"]),
+      tripSelect,
+      el(
+        "button",
+        {
+          class: "breaks-btn",
+          onclick: () => openPrintReport(runResult, tripSelect.value ? parseInt(tripSelect.value, 10) : null),
+        },
+        ["Print / Save PDF"]
+      ),
     ]);
     container.appendChild(exportRow);
   }
