@@ -700,12 +700,11 @@ ${vehicleBlocks.join("\n")}
   }
 
   function buildImportedTripCard(trip) {
-    const orderRows = trip.orders.map((o) =>
-      el("div", { class: "breaks-order-line", html: orderLineHtml(o) })
-    );
+    const legs = trip.legs.map(buildLegBlock);
+    const anyOverBudget = trip.legs.some((l) => l.trip && l.trip.overBudget);
     return el(
       "div",
-      { class: "breaks-vehicle-card" + (trip.mixedAreas ? " breaks-over" : "") },
+      { class: "breaks-vehicle-card" + (trip.mixedAreas || anyOverBudget ? " breaks-over" : "") },
       [
         el("div", { class: "breaks-vehicle-head" }, [
           el("b", {}, [`Trip ${trip.tripNumber}`]),
@@ -718,7 +717,7 @@ ${vehicleBlocks.join("\n")}
               ])
             : null,
         ]),
-        ...orderRows,
+        ...legs,
       ]
     );
   }
@@ -730,8 +729,10 @@ ${vehicleBlocks.join("\n")}
         "Team",
         "TeamName",
         "Destination(PDF)",
-        "Order",
+        "Slot",
+        "StopSeq",
         "AreaCode",
+        "Order",
         "Customer",
         "Volume",
         "FxTime",
@@ -741,21 +742,30 @@ ${vehicleBlocks.join("\n")}
       ],
     ];
     for (const trip of crossRefResult.trips) {
-      for (const o of trip.orders) {
-        rows.push([
-          trip.tripNumber,
-          trip.team || "",
-          trip.teamName || "",
-          trip.destination || "",
-          o.order,
-          o.resolvedAreaCode || "",
-          o.customer,
-          o.volume,
-          o.fxTime,
-          o.value,
-          o.isReturn ? "Y" : "",
-          o.notes || "",
-        ]);
+      for (const leg of trip.legs) {
+        if (!leg.trip) continue;
+        let stopSeq = 0;
+        for (const stop of leg.trip.stops) {
+          stopSeq++;
+          for (const o of stop.orders) {
+            rows.push([
+              trip.tripNumber,
+              trip.team || "",
+              trip.teamName || "",
+              trip.destination || "",
+              leg.slotLabel,
+              stopSeq,
+              stop.areaCode,
+              o.order,
+              o.customer,
+              o.volume,
+              o.fxTime,
+              o.value,
+              o.isReturn ? "Y" : "",
+              o.notes || "",
+            ]);
+          }
+        }
       }
     }
     const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\r\n");
@@ -768,7 +778,43 @@ ${vehicleBlocks.join("\n")}
       : crossRefResult.trips;
 
     const blocks = trips.map((trip) => {
-      const orderLines = trip.orders.map((o) => `<div class="order-line">${orderLineHtml(o)}</div>`).join("\n");
+      const legBlocks = trip.legs
+        .map((leg) => {
+          if (!leg.trip) {
+            return `<p class="leg-empty"><b>${leg.slotLabel} (${leg.window}):</b> no stops</p>`;
+          }
+          const t = leg.trip;
+          const orderLines = [];
+          for (const stop of t.stops) {
+            for (const o of stop.orders) {
+              orderLines.push(`<div class="order-line">${orderLineHtml(o, leg.slotLabel)}</div>`);
+            }
+          }
+          return `
+            <div class="leg-block">
+              <p><b>${leg.slotLabel} (${leg.window})</b>
+                ${
+                  t.longHaul
+                    ? ' <span class="warn">TOO FAR FOR ONE SLOT</span>'
+                    : t.totalCbm > settings.vehicleCbmCapacity
+                    ? ' <span class="warn">OVER CBM CAPACITY</span>'
+                    : t.overBudget
+                    ? ' <span class="warn">RUNS PAST SLOT TIME</span>'
+                    : ""
+                }
+              </p>
+              <p class="stops">Stops (farthest → nearest): ${t.stops
+                .map((s) => `${s.areaCode} (${s.distanceKm}km)`)
+                .join(" → ")}</p>
+              <div class="orders">${orderLines.join("\n")}</div>
+              <p class="totals">CBM: ${t.totalCbm.toFixed(2)} &nbsp; Fixing min: ${Math.round(
+            t.totalFxMinutes
+          )} &nbsp; Est. time: ${t.totalMinutes}/${t.budgetMinutes} min &nbsp; Value: ${t.totalValue.toFixed(
+            2
+          )} &nbsp; Orders: ${t.orderCount}${t.returnCount ? ` (${t.returnCount} return)` : ""}</p>
+            </div>`;
+        })
+        .join("\n");
       return `
         <div class="trip-block">
           <h2>Trip ${trip.tripNumber} — ${escapeHtml(trip.teamName || trip.team || "")}</h2>
@@ -779,12 +825,7 @@ ${vehicleBlocks.join("\n")}
                 : ""
             }
           </p>
-          <div class="orders">${orderLines}</div>
-          <p class="totals">CBM: ${trip.totalCbm.toFixed(2)} &nbsp; Fixing min: ${Math.round(
-        trip.totalFxMinutes
-      )} &nbsp; Value: ${trip.totalValue.toFixed(2)} &nbsp; Orders: ${trip.orders.length}${
-        trip.returnCount ? ` (${trip.returnCount} return)` : ""
-      }</p>
+          ${legBlocks}
         </div>`;
     });
 
@@ -796,6 +837,8 @@ ${vehicleBlocks.join("\n")}
   h2 { font-size: 16px; color: #15479b; margin-bottom: 6px; }
   .trip-block { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #ccc; page-break-after: always; }
   .trip-block:last-child { page-break-after: auto; border-bottom: none; }
+  .leg-block { margin: 6px 0 10px 10px; padding-left: 10px; border-left: 3px solid #d7dee8; }
+  .leg-empty { margin: 6px 0 10px 10px; padding-left: 10px; color: #8a97ad; border-left: 3px solid #eef2f9; }
   .stops { color: #46536b; }
   .orders { margin: 4px 0; }
   .order-line { font-size: 12px; padding: 1px 0; }
