@@ -1,0 +1,710 @@
+{
+  "warehouse": {
+    "code": "122",
+    "emirate": "SHJ",
+    "label": "Al Sajaa, Sharjah (Pan Home DC)"
+  },
+  "generatedNote": "distanceKm values are hand-estimated approximate ROAD distances (in km) from the Pan Home warehouse in Al Sajaa, Sharjah, used only to sequence stops within a trip (farthest first, nearest last) and to help assign orders to trips. They are NOT from a mapping API. Adjust them any time from the extension's Options page; your edits are stored locally and override these defaults.",
+  "areas": {
+    "233": {
+      "code": "233",
+      "emirate": "DXB",
+      "label": "DXB |HATTA |AL RAFAQ |MUNAY |MASFOUT |MADAM",
+      "distanceKm": 130,
+      "distanceIsEstimate": true
+    },
+    "321": {
+      "code": "321",
+      "emirate": "AUH",
+      "label": "AUH |MADINAT ZAYED (WESTERN REGION)",
+      "distanceKm": 260,
+      "distanceIsEstimate": true
+    },
+    "322": {
+      "code": "322",
+      "emirate": "AUH",
+      "label": "AUH |GYATHI",
+      "distanceKm": 300,
+      "distanceIsEstimate": true
+    },
+    "323": {
+      "code": "323",
+      "emirate": "AUH",
+      "label": "AUH |AL RUWAIS (WESTERN REGION)",
+      "distanceKm": 330,
+      "distanceIsEstimate": true
+    },
+    "324": {
+      "code": "324",
+      "emirate": "AUH",
+      "label": "AUH |SILA",
+      "distanceKm": 350,
+      "distanceIsEstimate": true
+    },
+    "325": {
+      "code": "325",
+      "emirate": "AUH",
+      "label": "AUH |DALMA ISLAND",
+      "distanceKm": 360,
+      "distanceIsEstimate": true
+    },
+    "326": {
+      "code": "326",
+      "emirate": "AUH",
+      "label": "AUH | SHUWAYHAT ISLAND",
+      "distanceKm": 340,
+      "distanceIsEstimate": true
+    },
+    "327": {
+      "code": "327",
+      "emirate": "AUH",
+      "label": "AUH | ABU AL ABYAD ISLAND",
+      "distanceKm": 345,
+      "distanceIsEstimate": true
+    },
+    "328": {
+      "code": "328",
+      "emirate": "AUH",
+      "label": "AUH | AL ARYAM ISLAND",
+      "distanceKm": 355,
+      "distanceIsEstimate": true
+    },
+    "329": {
+      "code": "329",
+      "emirate": "AUH",
+      "label": "AUH | YASAT ALI ISLAND",
+      "distanceKm": 365,
+      "distanceIsEstimate": true
+    },
+    "330": {
+      "code": "330",
+      "emirate": "AUH",
+      "label": "AUH | SAIH SHEIB",
+      "distanceKm": 160,
+      "distanceIsEstimate": true
+    },
+    "418": {
+      "code": "418",
+      "emirate": "AIN",
+      "label": "AIN |AL WAGAN |AL QUA’A",
+      "distanceKm": 180,
+      "distanceIsEstimate": true
+    },
+    "110": {
+      "code": "110",
+      "emirate": "SHJ",
+      "label": "SHJ |NAHDA |TAAWUN |MAMZAR",
+      "distanceKm": 18,
+      "distanceIsEstimate": true
+    },
+    "111": {
+      "code": "111",
+      "emirate": "SHJ",
+      "label": "SHJ |KHAN |KHALEDIA |LAYYAH |QASBA |MAJAZ 1-3 |ABU SHAGARA",
+      "distanceKm": 15,
+      "distanceIsEstimate": true
+    },
+    "112": {
+      "code": "112",
+      "emirate": "SHJ",
+      "label": "SHJ |MAHATTA |BU DANIG |AL NAD |QASIMIA |AL SOOR",
+      "distanceKm": 14,
+      "distanceIsEstimate": true
+    },
+    "113": {
+      "code": "113",
+      "emirate": "SHJ",
+      "label": "SHJ |BU TINA |RAMLA|MANSURA |NASSERYA |MUJARAH |SHARQ |NABBA |MAYSALOON",
+      "distanceKm": 16,
+      "distanceIsEstimate": true
+    },
+    "114": {
+      "code": "114",
+      "emirate": "SHJ",
+      "label": "SHJ |FAYHA |GHUWAIR |ROLLA |SHUWAIHEN |MUSALLA |MANAKH |HALWAN |JUBAIL |YARMOOK",
+      "distanceKm": 15,
+      "distanceIsEstimate": true
+    },
+    "115": {
+      "code": "115",
+      "emirate": "SHJ",
+      "label": "SHJ |AZRA |GHAPHIA |FALAJ |JAZZAT |RIQAA |SABKHA |NEKHAILAT |MIRGAB |MUNTAZAH",
+      "distanceKm": 17,
+      "distanceIsEstimate": true
+    },
+    "116": {
+      "code": "116",
+      "emirate": "SHJ",
+      "label": "SHJ |RIFAH |QULAYAA |SEEF |FISHT |SHARQAN |QADISIA |HAZANA |UMM AL TARAFFA",
+      "distanceKm": 18,
+      "distanceIsEstimate": true
+    },
+    "117": {
+      "code": "117",
+      "emirate": "SHJ",
+      "label": "SHJ |SAIF ZONE |ELYASH|SWEIHAT |MUWAFJAH |RAMAQIA |RAMTHA |ALGOAZ",
+      "distanceKm": 8,
+      "distanceIsEstimate": true
+    },
+    "118": {
+      "code": "118",
+      "emirate": "SHJ",
+      "label": "SHJ |ALTARFA |RIFFA |TALAA |DARARI |SHAHBA |KHEZAMIA |SAMNAN |ABAR |GHUBAIBA |DASMAN",
+      "distanceKm": 10,
+      "distanceIsEstimate": true
+    },
+    "119": {
+      "code": "119",
+      "emirate": "SHJ",
+      "label": "SHJ |INDUSTRIAL AREA 1 – 18",
+      "distanceKm": 10,
+      "distanceIsEstimate": true
+    },
+    "120": {
+      "code": "120",
+      "emirate": "SHJ",
+      "label": "SHJ |NOOF |GHARAYEN |JURAINA |UNIVERSITY CITY |MUWAILEH |NATIONAL PAINT",
+      "distanceKm": 10,
+      "distanceIsEstimate": true
+    },
+    "121": {
+      "code": "121",
+      "emirate": "SHJ",
+      "label": "SHJ |RAHMANIA |SEYOUH |BARASHI |FALAH",
+      "distanceKm": 8,
+      "distanceIsEstimate": true
+    },
+    "122": {
+      "code": "122",
+      "emirate": "SHJ",
+      "label": "SHJ |DHAID |SAJAA |ZUBAIR |BATAEH",
+      "distanceKm": 0,
+      "distanceIsEstimate": true
+    },
+    "210": {
+      "code": "210",
+      "emirate": "DXB",
+      "label": "DXB |MAMZAR |NAHDA 1-2 |QUSAIS 1-3 |QUSAIS IND AREA 1-5 |TWAR 1-3 |AIRPORT FREEZONE |MUHAISNAH 1-4",
+      "distanceKm": 20,
+      "distanceIsEstimate": true
+    },
+    "211": {
+      "code": "211",
+      "emirate": "DXB",
+      "label": "DXB |KHAWANEEJ 1-2 |MIZHAR 1-2 |OUD AL MUTEENA |WADI ALAMARDI |AWIR",
+      "distanceKm": 28,
+      "distanceIsEstimate": true
+    },
+    "212": {
+      "code": "212",
+      "emirate": "DXB",
+      "label": "DXB |MUSHRIF |WARQA 1-5 |MIRDIF |NAD AL HAMAR",
+      "distanceKm": 25,
+      "distanceIsEstimate": true
+    },
+    "213": {
+      "code": "213",
+      "emirate": "DXB",
+      "label": "DXB |WARSAN 1-2 |INTERNATIONAL CITY 1-2 |RAS AL KHOR |RAS AL KHOR INDUSTRIAL AREA 1-3 |BUKADRA",
+      "distanceKm": 27,
+      "distanceIsEstimate": true
+    },
+    "214": {
+      "code": "214",
+      "emirate": "DXB",
+      "label": "DXB |ACADEMIC CITY |LIWAN |DUBAI SILICON OASIS |MEYDAN SOUTH |NAD AL SHEBA 1-4",
+      "distanceKm": 30,
+      "distanceIsEstimate": true
+    },
+    "215": {
+      "code": "215",
+      "emirate": "DXB",
+      "label": "DXB |THE VILLA |SKYCOURTS |BARARI |FALCON CITY |LIFESTYLE CITY |GLOBAL VILLAGE |LEGENDS |MAJAN",
+      "distanceKm": 35,
+      "distanceIsEstimate": true
+    },
+    "216": {
+      "code": "216",
+      "emirate": "DXB",
+      "label": "DXB |ARABIAN RANCHES 1-2 |AL WAHA |LAYAN COM|STUDIO CITY |GREEN COM MOTOR CITY",
+      "distanceKm": 40,
+      "distanceIsEstimate": true
+    },
+    "217": {
+      "code": "217",
+      "emirate": "DXB",
+      "label": "DXB |MIRA COM|MUDON |SUSTAINABLE CITY  |REMRAAM |DAMAC HILLS",
+      "distanceKm": 45,
+      "distanceIsEstimate": true
+    },
+    "218": {
+      "code": "218",
+      "emirate": "DXB",
+      "label": "DXB |DUBAI MOTOR CITY |DUBAI SPORTS CITY |IMPZ |JVC |JVT |JUMEIRAH GOLF ESTATES |DIP 1-2",
+      "distanceKm": 42,
+      "distanceIsEstimate": true
+    },
+    "219": {
+      "code": "219",
+      "emirate": "DXB",
+      "label": "DXB |ABU HAIL |BARAHA |KHABAISI |MURAQQABAT |MUTEENA |RAS |RIGGA |SABKHA",
+      "distanceKm": 20,
+      "distanceIsEstimate": true
+    },
+    "220": {
+      "code": "220",
+      "emirate": "DXB",
+      "label": "DXB |CORNICHE DEIRA |HOR AL ANZ |NAIF |PORT SAEED |RIGGA AL BUTEEN |CARGO VILLAGE |MURAR",
+      "distanceKm": 20,
+      "distanceIsEstimate": true
+    },
+    "221": {
+      "code": "221",
+      "emirate": "DXB",
+      "label": "DXB |BADAA |HAMRIYA |HUDAIBA |MINA |SOUQ AL KABEER |JAFFILIYA |KARAMA",
+      "distanceKm": 24,
+      "distanceIsEstimate": true
+    },
+    "222": {
+      "code": "222",
+      "emirate": "DXB",
+      "label": "DXB |MANKHOOL |RAFFA |SATWA |SHINDAGHA |WAHEDA |HEALTHCARE CITY |MARITIME CITY",
+      "distanceKm": 25,
+      "distanceIsEstimate": true
+    },
+    "223": {
+      "code": "223",
+      "emirate": "DXB",
+      "label": "DXB |OUD METHA |PORT RASHID |UMM HURAIR 1-2 |WATERFRONT |JADDAF",
+      "distanceKm": 26,
+      "distanceIsEstimate": true
+    },
+    "224": {
+      "code": "224",
+      "emirate": "DXB",
+      "label": "DXB |JUMEIRAH 1-3 |UMM SUQEIM 1-3 |MANARA |SAFA 1-2|SUFOUH 1-2",
+      "distanceKm": 32,
+      "distanceIsEstimate": true
+    },
+    "225": {
+      "code": "225",
+      "emirate": "DXB",
+      "label": "DXB |WASL |WASL BOX PARK |KNOWLEDGE VILLAGE |UM AL SHEIF",
+      "distanceKm": 33,
+      "distanceIsEstimate": true
+    },
+    "226": {
+      "code": "226",
+      "emirate": "DXB",
+      "label": "DXB |PALM JUMEIRAH |MEDIA CITY |INTERNET CITY |MARINA |JBR |PALM JEBEL ALI",
+      "distanceKm": 42,
+      "distanceIsEstimate": true
+    },
+    "227": {
+      "code": "227",
+      "emirate": "DXB",
+      "label": "DXB |GARHOUD |RASHIDIYA |FESTIVAL CITY |NADD AL SHAMMA |UMM RAMOOL",
+      "distanceKm": 22,
+      "distanceIsEstimate": true
+    },
+    "228": {
+      "code": "228",
+      "emirate": "DXB",
+      "label": "DXB |BUSINESS BAY |DIFC |DOWNTOWN BURJ KHALIFA |DESIGN DISTRICT |TRADE CENTER-DWTC |ZAABEEL 1-2",
+      "distanceKm": 28,
+      "distanceIsEstimate": true
+    },
+    "229": {
+      "code": "229",
+      "emirate": "DXB",
+      "label": "DXB |QUOZ 1-4 |QUOZ IND AREA 1-4 |DUBAI HILLS |BARSHA 1-3 |BARSHA SOUTH |ARJAN |BARSHA HEIGHTS TECOM",
+      "distanceKm": 35,
+      "distanceIsEstimate": true
+    },
+    "230": {
+      "code": "230",
+      "emirate": "DXB",
+      "label": "DXB |IBN BATUTTA |DISCOVERY GARDENS |DOWNTOWN JEBEL ALI |FURJAN|EMIRATES HILLS |GARDENS",
+      "distanceKm": 48,
+      "distanceIsEstimate": true
+    },
+    "231": {
+      "code": "231",
+      "emirate": "DXB",
+      "label": "DXB |JEBEL ALI 1-2 |JEBEL ALI FZE |JEBEL ALI IND AREA |JUMEIRAH HEIGHTS |JUMEIRAH ISLANDS |JLT",
+      "distanceKm": 50,
+      "distanceIsEstimate": true
+    },
+    "232": {
+      "code": "232",
+      "emirate": "DXB",
+      "label": "DXB |JUMEIRAH PARK |SPRINGS |GREENS |LAKES |MEADOWS |TECHNO PARK |DWC |DUBAI INDUSTRIAL CITY- DIC",
+      "distanceKm": 52,
+      "distanceIsEstimate": true
+    },
+    "234": {
+      "code": "234",
+      "emirate": "DXB",
+      "label": "DXB | THE VALLEY COMMUNITY |TIJARAH TOWN |MADINAT HIND |DAMAC HILLS 2",
+      "distanceKm": 55,
+      "distanceIsEstimate": true
+    },
+    "235": {
+      "code": "235",
+      "emirate": "DXB",
+      "label": "DXB |DIC |DIP 1-2 |DUBAI SOUTH |EMAR SOUTH |LOGISTIC CITY |NIP |DWC |EXPO CITY |URBANA",
+      "distanceKm": 58,
+      "distanceIsEstimate": true
+    },
+    "310": {
+      "code": "310",
+      "emirate": "AUH",
+      "label": "AUH |MARYAH ISLAND  |MINA |PORT ZAYED-|TOURIST CLUB AREA-ZAHIYA|REEM ISL|SAADIYAT ISL|HAMDAN ST",
+      "distanceKm": 145,
+      "distanceIsEstimate": true
+    },
+    "311": {
+      "code": "311",
+      "emirate": "AUH",
+      "label": "AUH |ZAHIYAH |DANAH |NAVY GATE |ELECTRA ST |KHALIDIYAH |NAJDA ST |AL MANASIR",
+      "distanceKm": 148,
+      "distanceIsEstimate": true
+    },
+    "312": {
+      "code": "312",
+      "emirate": "AUH",
+      "label": "AUH |FALAH RD |MAROOR RD |SALAM ST |AIRPORT RD |MARKAZIYAH |ZAAB |KHALEEJ AL ARABI ST",
+      "distanceKm": 140,
+      "distanceIsEstimate": true
+    },
+    "313": {
+      "code": "313",
+      "emirate": "AUH",
+      "label": "AUH |DALMA ST |DHAFEER ST |KARAMAH |NAHYAN |ROWDAH |ZAFRANAH |MADINAT ZAYED",
+      "distanceKm": 142,
+      "distanceIsEstimate": true
+    },
+    "314": {
+      "code": "314",
+      "emirate": "AUH",
+      "label": "AUH |ZAYED SPORTS CITY  |EMBASSIES DISTRICT |MINISTRIES COMPLEX |KHALIFA PARK |MUSHRIF",
+      "distanceKm": 138,
+      "distanceIsEstimate": true
+    },
+    "315": {
+      "code": "315",
+      "emirate": "AUH",
+      "label": "AUH |MOHAMMED BIN ZAYED CITY  |ABU DHABI GATE CITY |MUSSAFAH INDUSTRIAL CITY  |MUSSAFAH SOUTH",
+      "distanceKm": 125,
+      "distanceIsEstimate": true
+    },
+    "316": {
+      "code": "316",
+      "emirate": "AUH",
+      "label": "AUH |AL DAFRAH |AL WATHBA | AL KHATIM",
+      "distanceKm": 110,
+      "distanceIsEstimate": true
+    },
+    "317": {
+      "code": "317",
+      "emirate": "AUH",
+      "label": "AUH |BANI YAS |MAFRAQ |SHAWAMEKH |SHAKHBOUT CITY |SHAMKHA",
+      "distanceKm": 115,
+      "distanceIsEstimate": true
+    },
+    "318": {
+      "code": "318",
+      "emirate": "AUH",
+      "label": "AUH |FALAH CITY |REEF |YAS ISLAND",
+      "distanceKm": 130,
+      "distanceIsEstimate": true
+    },
+    "319": {
+      "code": "319",
+      "emirate": "AUH",
+      "label": "AUH |SAS AL NAKHEEL |BAIN AL JESRAIN |AL MAQTA |MADINAT KHALIFA-A |MASDAR CITY |AL RAHA",
+      "distanceKm": 128,
+      "distanceIsEstimate": true
+    },
+    "331": {
+      "code": "331",
+      "emirate": "AUH",
+      "label": "AUH |SHAMKHA |RIYAD CITY |AL MIRAD |AL ADLAH |AL HAFFAR",
+      "distanceKm": 120,
+      "distanceIsEstimate": true
+    },
+    "410": {
+      "code": "410",
+      "emirate": "AIN",
+      "label": "AIN |SHUWAIB |HAYER |HILLI |FOAA |MASOUDI | AMERIYA",
+      "distanceKm": 165,
+      "distanceIsEstimate": true
+    },
+    "411": {
+      "code": "411",
+      "emirate": "AIN",
+      "label": "AIN |JIMI |FALAJ HAZZAA |MUTARAD |MUWAIJI |QATTARA |AIN MALL",
+      "distanceKm": 170,
+      "distanceIsEstimate": true
+    },
+    "412": {
+      "code": "412",
+      "emirate": "AIN",
+      "label": "AIN |KUWAITAT |MURABAA |JAHILI |MUTAWAA |AIN ZOO",
+      "distanceKm": 172,
+      "distanceIsEstimate": true
+    },
+    "413": {
+      "code": "413",
+      "emirate": "AIN",
+      "label": "AIN |KHABISI |KHALIDIYA |ASHAREJ |SHUWAIBAH |GANIMA |BEDDA BIN AMMAR |UAE UNIVERSITY",
+      "distanceKm": 175,
+      "distanceIsEstimate": true
+    },
+    "414": {
+      "code": "414",
+      "emirate": "AIN",
+      "label": "AIN |NEYADAT |AGABIYYA |MARAKHANIYA |TOWAYYA |TAWAM |MAQAM |BATEEN",
+      "distanceKm": 178,
+      "distanceIsEstimate": true
+    },
+    "415": {
+      "code": "415",
+      "emirate": "AIN",
+      "label": "AIN |SALAMAT DISTRICT |YAHAR |RIMA’A |SA’AD |KHAZNA",
+      "distanceKm": 180,
+      "distanceIsEstimate": true
+    },
+    "416": {
+      "code": "416",
+      "emirate": "AIN",
+      "label": "AIN |SAROOJ |MEZYED |UM GHAFFA |DHAHIR",
+      "distanceKm": 182,
+      "distanceIsEstimate": true
+    },
+    "417": {
+      "code": "417",
+      "emirate": "AIN",
+      "label": "AIN |SHAAB AL ASKAR |ZAKHER |NEIMA |JABAL HAFEET |MUBAZARRA |ALAIN AL FIYADA |AL DHAHRA",
+      "distanceKm": 185,
+      "distanceIsEstimate": true
+    },
+    "419": {
+      "code": "419",
+      "emirate": "AIN",
+      "label": "AIN |AL NAHEL |SWAIHAN",
+      "distanceKm": 190,
+      "distanceIsEstimate": true
+    },
+    "420": {
+      "code": "420",
+      "emirate": "AIN",
+      "label": "AIN | AL MARMOOM | AL LISAILI | MARGHAM | MURQQUAB | AL FAQA",
+      "distanceKm": 195,
+      "distanceIsEstimate": true
+    },
+    "510": {
+      "code": "510",
+      "emirate": "AJM",
+      "label": "AJM |EMIRATES CITY |HELIO |ZAHYA |AJMAN UPTOWN",
+      "distanceKm": 15,
+      "distanceIsEstimate": true
+    },
+    "511": {
+      "code": "511",
+      "emirate": "AJM",
+      "label": "AJM |ALIA |RAQAIB 1-2 |CITY CENTER |MUSHAIREF",
+      "distanceKm": 12,
+      "distanceIsEstimate": true
+    },
+    "512": {
+      "code": "512",
+      "emirate": "AJM",
+      "label": "AJM |JURF 1-2 |JURF IND AREA |HAMIDIYA |AJMAN UNIVERSITY |GARDEN CITY",
+      "distanceKm": 10,
+      "distanceIsEstimate": true
+    },
+    "513": {
+      "code": "513",
+      "emirate": "AJM",
+      "label": "AJM |AJMAN IND AREA 1-2|RAWDA AL ZAHRAA 1-3 |MWAIHAT 1-3",
+      "distanceKm": 12,
+      "distanceIsEstimate": true
+    },
+    "514": {
+      "code": "514",
+      "emirate": "AJM",
+      "label": "AJM |NUAIMIA 1-2 |RASHIDIYA 1-3|RUMAILAH |NAKHIL 1-2|BUTAIN |CORNICHE |BUSTAN |AJMAN FZE |ZAHRA",
+      "distanceKm": 15,
+      "distanceIsEstimate": true
+    },
+    "515": {
+      "code": "515",
+      "emirate": "AJM",
+      "label": "AJM |ZORA |HAMRIYA",
+      "distanceKm": 8,
+      "distanceIsEstimate": true
+    },
+    "610": {
+      "code": "610",
+      "emirate": "RAK",
+      "label": "RAK |HAMRA FZE |HAMRA IND AREA |HAMRA VILLAGE |JAZEERA AL HAMRA |MARJAN ISL|REFAAH |MINA AL ARAB",
+      "distanceKm": 95,
+      "distanceIsEstimate": true
+    },
+    "611": {
+      "code": "611",
+      "emirate": "RAK",
+      "label": "RAK |DHAIT|TURFA |HAMRANIA |KHUZAM |KHARRAN",
+      "distanceKm": 90,
+      "distanceIsEstimate": true
+    },
+    "612": {
+      "code": "612",
+      "emirate": "RAK",
+      "label": "RAK |DIGDAGA |SAQR PARK |NAHKHEEL AREA |DAFAN AL NAKHEEL |RAK CITY |SUHAIM |SIDROH |QURM |RAK MALL",
+      "distanceKm": 98,
+      "distanceIsEstimate": true
+    },
+    "613": {
+      "code": "613",
+      "emirate": "RAK",
+      "label": "RAK |DAHAN |DAFAN AL KHOR |MATAF |NUDOOD |SHARISHA |WADI AMMAR |SHAMAL",
+      "distanceKm": 102,
+      "distanceIsEstimate": true
+    },
+    "614": {
+      "code": "614",
+      "emirate": "RAK",
+      "label": "RAK |GHOOB |MAIRID |MAMOURAH |HUDAIBAH",
+      "distanceKm": 100,
+      "distanceIsEstimate": true
+    },
+    "615": {
+      "code": "615",
+      "emirate": "RAK",
+      "label": "RAK |SOOR |ZAHRA |SEIH AL URAIBI |SEIH AL SHIHYAR |SEIH AL BURAIRAAT",
+      "distanceKm": 108,
+      "distanceIsEstimate": true
+    },
+    "616": {
+      "code": "616",
+      "emirate": "RAK",
+      "label": "RAK |BURAIRAAT |QUSAIDAT |URAIBI |SEIH AL QUSAIDAT",
+      "distanceKm": 112,
+      "distanceIsEstimate": true
+    },
+    "617": {
+      "code": "617",
+      "emirate": "RAK",
+      "label": "RAK |RAMS |SHAAM   |GHALILAH |JEER |WADI SHAAM",
+      "distanceKm": 115,
+      "distanceIsEstimate": true
+    },
+    "618": {
+      "code": "618",
+      "emirate": "RAK",
+      "label": "RAK |KHATT |ADHAN |FAHLAIN",
+      "distanceKm": 118,
+      "distanceIsEstimate": true
+    },
+    "710": {
+      "code": "710",
+      "emirate": "FUJ",
+      "label": "FUJ |KHAWR KALBA |KALBA |AL HAYL",
+      "distanceKm": 115,
+      "distanceIsEstimate": true
+    },
+    "711": {
+      "code": "711",
+      "emirate": "FUJ",
+      "label": "FUJ |FUJ CITY |FASEEL |FARFAR |GURFA |MARASHID |SAKAMKAM |FUJ PORT",
+      "distanceKm": 120,
+      "distanceIsEstimate": true
+    },
+    "712": {
+      "code": "712",
+      "emirate": "FUJ",
+      "label": "FUJ |OLD FUJ CITY |FUJ AIRPORT |FUJ MALL |CENTURY MALL",
+      "distanceKm": 118,
+      "distanceIsEstimate": true
+    },
+    "713": {
+      "code": "713",
+      "emirate": "FUJ",
+      "label": "FUJ |QURAYYA |MIRBAH |MADHAA |QIDFA |KHORFAKKAN |MUDAIFI |LULUYAH |ZUBARA",
+      "distanceKm": 125,
+      "distanceIsEstimate": true
+    },
+    "714": {
+      "code": "714",
+      "emirate": "FUJ",
+      "label": "FUJ |BIDIYA |SHARM |AQAH |DHADNA |RUL DHADNA |KARSHA |DIBBA AL FUJAIRAH",
+      "distanceKm": 130,
+      "distanceIsEstimate": true
+    },
+    "715": {
+      "code": "715",
+      "emirate": "FUJ",
+      "label": "FUJ |DIBBA AL HISN |MASAFI |FRIDAY MARKET MASAFI |HALAH",
+      "distanceKm": 110,
+      "distanceIsEstimate": true
+    },
+    "716": {
+      "code": "716",
+      "emirate": "FUJ",
+      "label": "FUJ |TAWEEN",
+      "distanceKm": 135,
+      "distanceIsEstimate": true
+    },
+    "717": {
+      "code": "717",
+      "emirate": "FUJ",
+      "label": "FUJ | SIJI",
+      "distanceKm": 140,
+      "distanceIsEstimate": true
+    },
+    "718": {
+      "code": "718",
+      "emirate": "FUJ",
+      "label": "FUJ | KADRA",
+      "distanceKm": 138,
+      "distanceIsEstimate": true
+    },
+    "719": {
+      "code": "719",
+      "emirate": "FUJ",
+      "label": "FUJ | AL BITHNAH",
+      "distanceKm": 142,
+      "distanceIsEstimate": true
+    },
+    "810": {
+      "code": "810",
+      "emirate": "UAQ",
+      "label": "UAQ |ABRAB |SALAMAH A-C |IND AREA |RAMLAH",
+      "distanceKm": 40,
+      "distanceIsEstimate": true
+    },
+    "811": {
+      "code": "811",
+      "emirate": "UAQ",
+      "label": "UAQ |AAHAD |DEFENCE CAMP |GREEN BELT |HUMRAH A-D|MAIDAN |HADITHA",
+      "distanceKm": 42,
+      "distanceIsEstimate": true
+    },
+    "812": {
+      "code": "812",
+      "emirate": "UAQ",
+      "label": "UAQ |RAAS A-C |RIQQAH |DAR AL BAIDAH |RAUDAH |OLD TOWN AREA |UMM AL QUWAIN MARINA|LIMGADHAR |KHOR",
+      "distanceKm": 45,
+      "distanceIsEstimate": true
+    },
+    "813": {
+      "code": "813",
+      "emirate": "UAQ",
+      "label": "UAQ |FALAZ AL MUALLA",
+      "distanceKm": 50,
+      "distanceIsEstimate": true
+    }
+  }
+}

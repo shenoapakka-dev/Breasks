@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Breasks – ETM Trip Planner",
+  "version": "1.0.0",
+  "description": "Plans Pan Home delivery trips from ETM orders: groups by area, splits by vehicle/CBM capacity and 3 daily slots, orders stops farthest-to-nearest from the warehouse.",
+  "default_locale": "en",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Breasks Trip Planner"
+  },
+  "options_page": "options/options.html",
+  "permissions": ["storage"],
+  "host_permissions": ["https://etm.panemirates.ae:8443/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://etm.panemirates.ae:8443/ordering/trips-plan/*"],
+      "js": ["content/page-bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://etm.panemirates.ae:8443/ordering/trips-plan/*"],
+      "js": [
+        "data/area_codes.js",
+        "lib/planner.js",
+        "content/content.js"
+      ],
+      "css": ["content/panel.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

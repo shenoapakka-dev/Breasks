@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Breaks – Trip Planner Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <h1>Breaks – ETM Trip Planner Settings</h1>
+  <p class="sub">Pan Home delivery trip planning. Changes are saved locally in this browser and used the next time you run a plan on the ETM page.</p>
+
+  <section>
+    <h2>Warehouse</h2>
+    <label>
+      Warehouse area code
+      <select id="warehouseAreaCode"></select>
+    </label>
+    <p class="hint">Default: 122 (Al Sajaa, Sharjah – Pan Home DC). Stops are ordered farthest → nearest relative to this point.</p>
+  </section>
+
+  <section>
+    <h2>Vehicle capacity</h2>
+    <label>
+      Default CBM capacity per vehicle
+      <input type="number" id="vehicleCbmCapacity" min="0" step="0.1" />
+    </label>
+    <p class="hint">Used as the volume ceiling per trip when bin-packing orders. If your fleet has mixed sizes, set the smallest common size here and adjust per trip manually after building the plan.</p>
+  </section>
+
+  <section>
+    <h2>Travel speed assumption</h2>
+    <label>
+      Average speed (km/h)
+      <input type="number" id="avgSpeedKmh" min="1" step="1" />
+    </label>
+    <p class="hint">Used only to convert the distance table's km into estimated travel minutes between stops, for the time-budget check.</p>
+  </section>
+
+  <section>
+    <h2>Daily slots</h2>
+    <div id="slotsContainer"></div>
+    <label>
+      Buffer per slot (minutes)
+      <input type="number" id="slotBufferMinutes" min="0" step="5" />
+    </label>
+    <p class="hint">Subtracted from each slot's window to leave margin for loading, breaks, and traffic.</p>
+  </section>
+
+  <section>
+    <h2>Exclusion rules</h2>
+    <label>
+      Excluded order-number prefixes (comma separated)
+      <input type="text" id="excludedOrderPrefixes" placeholder="UK, QT, MT" />
+    </label>
+    <label>
+      Order-number prefixes treated as Sales Return
+      <input type="text" id="returnOrderPrefixes" placeholder="RW" />
+    </label>
+    <label>
+      Notes pattern treated as Sales Return (regex, case-insensitive)
+      <input type="text" id="returnNotesPattern" placeholder="\\bR\\b|RETURN" />
+    </label>
+    <p class="hint">An order is excluded from planning if its number starts with one of the excluded prefixes, OR it matches either Sales Return rule above.</p>
+  </section>
+
+  <section>
+    <h2>Area mapping overrides</h2>
+    <p class="hint">When the ETM "Area" column value doesn't match a known area code, you map it once from the planner panel. Saved mappings appear here and can be removed.</p>
+    <div id="overridesContainer"></div>
+  </section>
+
+  <div class="save-row">
+    <button id="saveBtn">Save settings</button>
+    <button id="resetBtn" class="secondary">Reset to defaults</button>
+    <span id="saveStatus"></span>
+  </div>
+
+  <section>
+    <h2>Area code reference</h2>
+    <input type="text" id="areaSearch" placeholder="Search area code or name..." />
+    <div id="areaTable" class="area-table"></div>
+  </section>
+
+  <script src="../data/area_codes.js"></script>
+  <script src="../lib/planner.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
