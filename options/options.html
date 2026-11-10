@@ -52,15 +52,20 @@
       Excluded order-number prefixes (comma separated)
       <input type="text" id="excludedOrderPrefixes" placeholder="UK, QT, MT" />
     </label>
+    <p class="hint">Orders whose number starts with one of these are dropped from the plan entirely.</p>
+  </section>
+
+  <section>
+    <h2>Return pickup tagging</h2>
     <label>
-      Order-number prefixes treated as Sales Return
+      Order-number prefixes tagged as a Return pickup
       <input type="text" id="returnOrderPrefixes" placeholder="RW" />
     </label>
     <label>
-      Notes pattern treated as Sales Return (regex, case-insensitive)
+      Notes pattern tagged as a Return pickup (regex, case-insensitive)
       <input type="text" id="returnNotesPattern" placeholder="\\bR\\b|RETURN" />
     </label>
-    <p class="hint">An order is excluded from planning if its number starts with one of the excluded prefixes, OR it matches either Sales Return rule above.</p>
+    <p class="hint">These orders are NOT excluded — the driver still visits that stop. They're just flagged (badge in the panel, [R]/[RETURN] marker in exports) so the team knows to collect a return there instead of only dropping off.</p>
   </section>
 
   <section>

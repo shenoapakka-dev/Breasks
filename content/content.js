@@ -282,6 +282,7 @@
         "Volume",
         "FxTime",
         "Value",
+        "ReturnPickup",
       ],
     ];
     let tripNo = 0;
@@ -304,6 +305,7 @@
               o.volume,
               o.fxTime,
               o.value,
+              o.isReturn ? "Y" : "",
             ]);
           }
         }
@@ -324,7 +326,7 @@
         for (const stop of trip.stops) {
           for (const o of stop.orders) {
             seq++;
-            orderList.push(`${o.order}(${seq})`);
+            orderList.push(`${o.order}(${seq})${o.isReturn ? " [RETURN]" : ""}`);
           }
         }
         const destLabel = trip.stops
@@ -383,7 +385,7 @@ ${sections.join("\n")}
     for (const stop of trip.stops) {
       for (const o of stop.orders) {
         seq++;
-        parts.push(`${o.order}(${seq})`);
+        parts.push(`${o.order}(${seq})${o.isReturn ? "[R]" : ""}`);
       }
     }
     const text = parts.join(" , ");
@@ -459,18 +461,21 @@ ${sections.join("\n")}
 
   function buildExcludedSection(excluded) {
     if (!excluded.length) return null;
-    const returns = excluded.filter((o) => o.excludeReason === "sales_return").length;
-    const types = excluded.length - returns;
     return el("div", { class: "breaks-section" }, [
       el("div", { class: "breaks-section-title" }, [
-        `Excluded: ${excluded.length} (${returns} sales returns, ${types} excluded order types)`,
+        `Excluded (order type not planned): ${excluded.length}`,
       ]),
     ]);
   }
 
   function buildTripCard(trip, tripNo) {
     const stopsText = trip.stops
-      .map((s) => `${s.areaCode} (${s.distanceKm}km, ${s.orders.length} ord)`)
+      .map(
+        (s) =>
+          `${s.areaCode} (${s.distanceKm}km, ${s.orders.length} ord${
+            s.returnCount ? `, ${s.returnCount} return` : ""
+          })`
+      )
       .join(" → ");
     const copyBtn = el("button", { class: "breaks-btn-sm" }, ["Copy order #s"]);
     copyBtn.addEventListener("click", () => {
@@ -481,9 +486,9 @@ ${sections.join("\n")}
     return el("div", { class: "breaks-trip-card" + (trip.overBudget ? " breaks-over" : "") }, [
       el("div", { class: "breaks-trip-head" }, [
         el("b", {}, [`Trip ${tripNo}`]),
-        ` — ${trip.orderCount} orders, ${trip.totalCbm.toFixed(2)} CBM, ${trip.totalMinutes}/${
-          trip.budgetMinutes
-        } min`,
+        ` — ${trip.orderCount} orders${trip.returnCount ? ` (${trip.returnCount} return pickups)` : ""}, ${trip.totalCbm.toFixed(
+          2
+        )} CBM, ${trip.totalMinutes}/${trip.budgetMinutes} min`,
         trip.overBudget ? el("span", { class: "breaks-warn" }, [" OVER CAPACITY/TIME"]) : null,
       ]),
       el("div", { class: "breaks-trip-stops" }, [stopsText]),
