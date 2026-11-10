@@ -489,7 +489,11 @@ ${sections.join("\n")}
         ` — ${trip.orderCount} orders${trip.returnCount ? ` (${trip.returnCount} return pickups)` : ""}, ${trip.totalCbm.toFixed(
           2
         )} CBM, ${trip.totalMinutes}/${trip.budgetMinutes} min`,
-        trip.overBudget ? el("span", { class: "breaks-warn" }, [" OVER CAPACITY/TIME"]) : null,
+        trip.longHaul
+          ? el("span", { class: "breaks-warn" }, [" TOO FAR FOR ONE SLOT — needs a dedicated/longer trip"])
+          : trip.overBudget
+          ? el("span", { class: "breaks-warn" }, [" OVER CAPACITY/TIME"])
+          : null,
       ]),
       el("div", { class: "breaks-trip-stops" }, [stopsText]),
       copyBtn,
