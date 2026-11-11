@@ -18,19 +18,28 @@
   },
   "options_page": "options/options.html",
   "permissions": ["storage"],
-  "host_permissions": ["https://etm.panemirates.ae:8443/*"],
+  "host_permissions": [
+    "https://etm.panemirates.ae/*",
+    "https://etm.panemirates.ae:8443/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://etm.panemirates.ae:8443/ordering/trips-plan/*"],
+      "matches": [
+        "https://etm.panemirates.ae/ordering/trips-plan/*",
+        "https://etm.panemirates.ae:8443/ordering/trips-plan/*"
+      ],
       "js": ["content/page-bridge.js"],
       "world": "MAIN",
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://etm.panemirates.ae:8443/ordering/trips-plan/*"],
+      "matches": [
+        "https://etm.panemirates.ae/ordering/trips-plan/*",
+        "https://etm.panemirates.ae:8443/ordering/trips-plan/*"
+      ],
       "js": [
         "data/area_codes.js",
         "lib/planner.js",
@@ -43,7 +52,10 @@
   "web_accessible_resources": [
     {
       "resources": ["import/import.html", "import/import.js", "import/import.css", "lib/pdfjs/*"],
-      "matches": ["https://etm.panemirates.ae:8443/*"]
+      "matches": [
+        "https://etm.panemirates.ae/*",
+        "https://etm.panemirates.ae:8443/*"
+      ]
     }
   ]
 }

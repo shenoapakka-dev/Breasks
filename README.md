@@ -1,7 +1,8 @@
 # Breasks – ETM Trip Planner (Pan Home)
 
 Chrome extension (Manifest V3) that reads the order list from ETM's
-**List Orders** page (`https://etm.panemirates.ae:8443/ordering/trips-plan/list-orders`)
+**List Orders** page (`https://etm.panemirates.ae/ordering/trips-plan/list-orders`, with or
+without the `:8443` port)
 and builds a delivery trip plan: orders are grouped by area, split across
 3 daily slots and vehicle (CBM) capacity, and each trip's stops are
 sequenced farthest → nearest relative to the warehouse (Al Sajaa,
