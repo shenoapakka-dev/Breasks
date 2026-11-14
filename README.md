@@ -183,3 +183,18 @@ python3 scripts/build_area_data.py
 
 This reads `data/source/Area_Codes_All_Emirates.xlsx` and rewrites
 `data/area_codes.json` and `data/area_codes.js`.
+
+## 8. Unattended capacity sync (no browser tab needed)
+
+`server/etm-capacity-sync.js` is a separate, standalone Node script -
+not part of the Chrome extension - that logs into ETM headlessly on a
+schedule (cron) and computes the same per-area Fixing-Minutes/CBM
+capacity the extension shows, without anyone needing a browser tab
+open. It's the data source behind the [Slot Capacity
+Monitor](https://claude.ai/artifact/4Dq8gDouX8ptjufoVRVNhh) prototype
+(a mockup for showing which delivery slot is already full before
+creating a new order - not yet wired into Odoo). See
+`server/README.md` for setup, credentials and scheduling - including
+a known gap: its login/date-filter steps are unverified guesses that
+need a one-time check against the real ETM login page.
+`data/area_codes.json` and `data/area_codes.js`.

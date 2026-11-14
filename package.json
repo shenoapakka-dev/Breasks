@@ -1,0 +1,11 @@
+{
+  "name": "breasks",
+  "private": true,
+  "description": "Pan Home ETM Trip Planner (Chrome extension) + ETM capacity sync script",
+  "scripts": {
+    "sync": "node server/etm-capacity-sync.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}

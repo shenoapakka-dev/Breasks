@@ -43,6 +43,7 @@
       "js": [
         "data/area_codes.js",
         "lib/planner.js",
+        "lib/row-mapper.js",
         "content/content.js"
       ],
       "css": ["content/panel.css"],
