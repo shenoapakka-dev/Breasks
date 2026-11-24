@@ -1367,8 +1367,6 @@ function initGlobalEvents(){
         deliveryDate: box2.querySelector(".editDeliveryDate").value,
         note: box2.querySelector(".editNote").value.trim()
       };
-      var collectedEl = box2.querySelector(".editCollected");
-      if(collectedEl) patch.collected = collectedEl.checked;
       // Visible feedback the save is actually in flight — without this, a
       // slow network made it look like "Save Changes" silently did nothing
       // (the actual complaint), even on a run where it succeeds a second
@@ -2046,8 +2044,6 @@ function renderReqCard(r){
       '<div class="field"><label>Retain / Not Retain</label><select class="editRetain">'+RETAIN_OPTIONS.map(function(x){ return '<option '+(x===r.retain?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Expected Delivery Date</label><input type="date" class="editDeliveryDate" value="'+esc(r.deliveryDate||"")+'"></div>'+
     '</div>'+
-    (r.refundMethod==="Cash on Delivery" ? '<label class="field" style="margin-bottom:10px;flex-direction:row;align-items:center;gap:8px">'+
-      '<input type="checkbox" class="editCollected" style="width:auto"'+(r.collected?" checked":"")+'> Cash Collected (feeds the Dashboard’s Cash Pending Collection figure)</label>' : '')+
     '<div class="field" style="margin-bottom:10px"><label>Note</label><textarea class="editNote">'+esc(r.note)+'</textarea></div>'+
     '<div class="btnrow"><button type="button" class="btn good sm" data-save-edit="'+r.id+'">Save Changes</button></div>'+
   '</div>' : '';
@@ -2121,7 +2117,7 @@ function wireRequests(){
 }
 function exportCsv(){
   var list = filteredRequests();
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate","collected"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate"];
   var head = cols.join(",");
   var rows = list.map(function(r){
     return cols.map(function(c){
@@ -2174,7 +2170,7 @@ function exportXlsxReport(){
 
   var rawCols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","currency",
     "amount","amountAED","reason","note","refundMethod","retain","status","statusLabel","source","scope","items",
-    "customerCode","customerName","orderSegment","deliveryDate","collected"];
+    "customerCode","customerName","orderSegment","deliveryDate"];
   var rawRows = [rawCols].concat(d.list.map(function(r){
     return rawCols.map(function(c){
       if(c==="createdAt") return fmtDate(r.createdAt);
@@ -2431,7 +2427,7 @@ function renderDashDrilldown(list){
 function exportDashDrilldownXlsx(){
   if(typeof XLSX==="undefined"){ toast("Excel library didn't load — check your connection and try again."); return; }
   var list = scopedRequests(state.dashScope); // same scope+filters the drill-down card itself shows
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate","collected"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate"];
   var rows = [cols].concat(list.map(function(r){
     return cols.map(function(c){
       if(c==="createdAt") return fmtDate(r.createdAt);
@@ -2603,6 +2599,7 @@ function renderDashboard(){
   '</div>'+
   chartCard("Request Status", donutSVG(toPairs(byStatus),{"New":"warn","Rejected — Returned to Agent":"bad","Not Cancelled (Technical Issue)":"bad","Approved & Sent to the Store":"good","Sent to the Store":"info","Sent To the Store For Cancellation & Refund":"info","Sent To the Store For Cancellation & Keep Credit Note":"cat-6","Sent to Online Team":"cat-2","Cancelled with Refund Same Payment Method":"cat-4","Cancelled With Credit Note":"cat-3","Cancelled CDF":"cat-5"},"status",statusKeyForLabel))+
   '<div class="card"><h2>Top Cancellation Reasons</h2><p class="sub">Ranked by volume'+(scope!=="all"?" "+scopeLabel(scope):"")+' — click a reason to filter everything below by it.</p>'+ hbarList(byReason,8,null,"reason",null,true) +'</div>'+
+  renderFulfillmentBreakdown(list)+
   '<div class="chartgrid">'+
     chartCard("By Region — count", hbarList(byRegion,6,null,"region",regionCodeForLabel))+
     chartCard("By Region — value (AED)", hbarList(byRegionAmt,6,function(v){return "AED "+fmtMoney(v);},"region",regionCodeForLabel))+
@@ -2712,15 +2709,6 @@ function renderCancellationBreakdown(list, prevTotal){
       '<span class="cbpct">'+pct(val)+'%</span>'+
     '</div>';
   }
-  // Cash Pending Collection: of this period's Cash on Delivery value, how
-  // much has actually been picked up from the store/delivery team vs. is
-  // still outstanding — only meaningful once "collected" has real data on
-  // at least one COD request, so the panel stays out of the way otherwise.
-  var codList = closedList.filter(function(r){ return r.refundMethod==="Cash on Delivery"; });
-  var codTotal = onlineCOD + storeCOD;
-  var codCollected = codList.filter(function(r){ return r.collected; }).reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
-  var codPending = codTotal - codCollected;
-  var hasCollectionData = codList.some(function(r){ return r.collected; });
   return '<div class="card">'+
     '<h2>Cancellation Value Breakdown</h2>'+
     '<p class="sub">How the total cancelled value splits between actual refunds, Cash on Delivery, and Credit Note — COD kept separate since no money changes hands for it.</p>'+
@@ -2738,19 +2726,23 @@ function renderCancellationBreakdown(list, prevTotal){
       (onlineCredit>0 ? row("Online Credit Note", onlineCredit, "var(--cat-5)") : "")+
       (storeCOD>0 ? row("Store COD", storeCOD, "var(--cat-6)") : "")+
     '</div>'+
-    (codTotal>0 ? (
-      '<div class="cbcod">'+
-        '<div class="cbcodicon">💵</div>'+
-        '<div class="cbcodtxt"><h4>Cash Pending Collection</h4>'+
-          '<p>'+(hasCollectionData ? 'Of this period’s Cash on Delivery total, how much is still outstanding with the store/delivery team.' : 'Mark COD requests as collected (Edit → Cash Collected) to start tracking this — nothing marked yet, so it all shows as pending.')+'</p>'+
-        '</div>'+
-        '<div class="cbcodfigs">'+
-          '<div><div class="n" style="color:var(--warn)">AED '+fmtMoney(codPending)+'</div><div class="l">Not collected</div></div>'+
-          '<div><div class="n">AED '+fmtMoney(codCollected)+'</div><div class="l">Collected</div></div>'+
-        '</div>'+
-      '</div>'
-    ) : '')+
   '</div>';
+}
+// ETM's own fulfillment-type code, parsed into orderSegment by
+// parseEtmPaste() straight from the pasted order details (no separate field
+// to maintain) — DFX/CDF were already decoded in that parser's own comment;
+// COL ("Collection") is the customer picking the item up from a showroom
+// themselves rather than having it delivered, still refunded to the same
+// card it was paid with if cancelled. Anything else prints as its raw code.
+function fulfillmentLabel(seg){
+  var map = { DFX:"Delivery & Fixing", CDF:"COD Delivery & Fixing", COL:"Collection (Customer Pickup)" };
+  return map[seg] || seg;
+}
+function renderFulfillmentBreakdown(list){
+  var withSeg = list.filter(function(r){ return r.orderSegment; });
+  var bySeg = countBy(withSeg, function(r){ return fulfillmentLabel(r.orderSegment); });
+  if(!Object.keys(bySeg).length) return '';
+  return chartCard("By Fulfillment Type (ETM)", hbarList(bySeg, 8, null, null, null, true));
 }
 function hbarList(m, limit, fmt, filterKey, toValue, showSharePct){
   var pairs = toPairs(m).slice(0, limit||10);
