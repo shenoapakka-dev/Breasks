@@ -148,22 +148,43 @@ input[type=number],input[type=tel]{direction:ltr;text-align:left}
 .hbarrow[data-chart-filter]:hover .lbl{color:var(--ink);text-decoration:underline}
 .hbarrow.active .lbl{color:var(--accent);font-weight:700}
 .hbarrow.active .hbarfill{background:var(--accent)}
-/* Cancellation Value Breakdown — a small total/sub-total tree, each row its
-   own label+value line with a proportional bar underneath (vs. hbarlist's
-   fixed-width label column, too narrow for labels like "Stores Cancellation
-   and Credit Note"), indentation showing Refund Request's two children. */
-.cbtree{display:flex;flex-direction:column;gap:14px;margin-top:4px}
-.cbrow.indent{margin-left:26px}
-.cbtop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}
-.cblbl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-muted);min-width:0}
-.cbdot{width:9px;height:9px;border-radius:999px;flex:none;display:inline-block}
-.cbval{font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}
-.cbpct{font-weight:600;color:var(--ink-faint);margin-left:2px}
-.cbtrack{background:var(--surface-2);border-radius:5px;height:9px;overflow:hidden}
+/* Cancellation Value Breakdown — a hero figure for the total (same trend
+   badge as the KPI cards), then a ledger of rows (dot, label, proportional
+   bar, amount, % of total) in one grid so everything lines up, plus a
+   dedicated Cash Pending Collection callout when there's COD value to show. */
+.cbhero{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding-bottom:16px;margin-bottom:14px;border-bottom:1px solid var(--border)}
+.cbfigure{font-size:30px;font-weight:800;font-family:"Manrope",sans-serif}
+.cbfigure .cur{font-size:15px;color:var(--ink-faint);font-weight:700;margin-right:5px}
+.cbmeta{color:var(--ink-faint);font-size:12.5px}
+.cbherotrend{margin-left:auto}
+.cbtree{display:flex;flex-direction:column;gap:12px}
+.cbrow{display:grid;grid-template-columns:9px 1fr 140px auto 42px;gap:10px;align-items:center}
+.cbrow.indent{grid-template-columns:9px 30px 1fr 140px auto 42px}
+.cbrow.indent .cbdot{grid-column:1}
+.cblbl{font-size:12.5px;color:var(--ink-soft);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbdot{width:9px;height:9px;border-radius:999px;flex:none}
+.cbamt{font-size:12.5px;font-weight:700;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right}
+.cbpct{font-weight:600;color:var(--ink-faint);font-size:11.5px;text-align:right}
+.cbtrack{background:var(--surface-2);border-radius:5px;height:8px;overflow:hidden}
 .cbfill{height:100%;border-radius:5px}
-.cbrow.total{padding-bottom:12px;margin-bottom:2px;border-bottom:1px solid var(--border)}
-.cbrow.total .cblbl{font-size:15px;font-weight:800;color:var(--ink)}
-.cbrow.total .cbval{font-size:17px;font-weight:800}
+.cbcod{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:18px;padding:16px 18px;
+  background:var(--warn-soft);border:1px solid var(--warn);border-radius:12px}
+.cbcodicon{width:36px;height:36px;border-radius:10px;background:var(--warn);display:flex;align-items:center;
+  justify-content:center;font-size:17px;flex:none}
+.cbcodtxt h4{margin:0;font-size:13.5px;color:var(--ink)}
+.cbcodtxt p{margin:3px 0 0;font-size:12px;color:var(--ink-soft);max-width:46ch}
+.cbcodfigs{margin-left:auto;display:flex;gap:20px}
+.cbcodfigs .n{font-size:16px;font-weight:800;font-family:"Manrope",sans-serif;color:var(--ink)}
+.cbcodfigs .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-faint)}
+@media (max-width:700px){
+  .cbrow,.cbrow.indent{grid-template-columns:1fr auto;grid-template-areas:"lbl amt" "bar bar"}
+  .cbrow .cbdot{display:none}
+  .cbrow .cblbl{grid-area:lbl}
+  .cbrow .cbamt{grid-area:amt}
+  .cbrow .cbtrack{grid-area:bar;margin-top:2px}
+  .cbrow .cbpct{display:none}
+  .cbcodfigs{margin-left:0;width:100%;justify-content:space-between}
+}
 .regionlegend{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
 .regionlegend-item{display:flex;align-items:center;gap:7px;background:var(--surface-2);border-radius:9px;padding:7px 11px;font-size:12px}
 .regionlegend-item .dot{width:9px;height:9px;border-radius:50%;flex:none}
@@ -1346,6 +1367,8 @@ function initGlobalEvents(){
         deliveryDate: box2.querySelector(".editDeliveryDate").value,
         note: box2.querySelector(".editNote").value.trim()
       };
+      var collectedEl = box2.querySelector(".editCollected");
+      if(collectedEl) patch.collected = collectedEl.checked;
       // Visible feedback the save is actually in flight — without this, a
       // slow network made it look like "Save Changes" silently did nothing
       // (the actual complaint), even on a run where it succeeds a second
@@ -2023,6 +2046,8 @@ function renderReqCard(r){
       '<div class="field"><label>Retain / Not Retain</label><select class="editRetain">'+RETAIN_OPTIONS.map(function(x){ return '<option '+(x===r.retain?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Expected Delivery Date</label><input type="date" class="editDeliveryDate" value="'+esc(r.deliveryDate||"")+'"></div>'+
     '</div>'+
+    (r.refundMethod==="Cash on Delivery" ? '<label class="field" style="margin-bottom:10px;flex-direction:row;align-items:center;gap:8px">'+
+      '<input type="checkbox" class="editCollected" style="width:auto"'+(r.collected?" checked":"")+'> Cash Collected (feeds the Dashboard’s Cash Pending Collection figure)</label>' : '')+
     '<div class="field" style="margin-bottom:10px"><label>Note</label><textarea class="editNote">'+esc(r.note)+'</textarea></div>'+
     '<div class="btnrow"><button type="button" class="btn good sm" data-save-edit="'+r.id+'">Save Changes</button></div>'+
   '</div>' : '';
@@ -2096,7 +2121,7 @@ function wireRequests(){
 }
 function exportCsv(){
   var list = filteredRequests();
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate","collected"];
   var head = cols.join(",");
   var rows = list.map(function(r){
     return cols.map(function(c){
@@ -2149,7 +2174,7 @@ function exportXlsxReport(){
 
   var rawCols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","currency",
     "amount","amountAED","reason","note","refundMethod","retain","status","statusLabel","source","scope","items",
-    "customerCode","customerName","orderSegment","deliveryDate"];
+    "customerCode","customerName","orderSegment","deliveryDate","collected"];
   var rawRows = [rawCols].concat(d.list.map(function(r){
     return rawCols.map(function(c){
       if(c==="createdAt") return fmtDate(r.createdAt);
@@ -2406,7 +2431,7 @@ function renderDashDrilldown(list){
 function exportDashDrilldownXlsx(){
   if(typeof XLSX==="undefined"){ toast("Excel library didn't load — check your connection and try again."); return; }
   var list = scopedRequests(state.dashScope); // same scope+filters the drill-down card itself shows
-  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate"];
+  var cols = ["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","customerCode","customerName","region","amount","currency","amountAED","reason","source","scope","items","note","refundMethod","retain","status","deliveryDate","collected"];
   var rows = [cols].concat(list.map(function(r){
     return cols.map(function(c){
       if(c==="createdAt") return fmtDate(r.createdAt);
@@ -2563,7 +2588,7 @@ function renderDashboard(){
     kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders", prev && prev.store)+
     kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders", prev && prev.online)+
   '</div>'+
-  renderCancellationBreakdown(list)+
+  renderCancellationBreakdown(list, prev && prev.cancelledAmt)+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
     renderRegionLegend(list)+
@@ -2666,7 +2691,7 @@ function statusKeyForLabel(label){
 // of being folded into "refund", and the two real-refund channels (Online /
 // Store, both "Same Payment Method") roll up into one "Refund Request"
 // sub-total so it's clear how much of the total is an actual cash refund.
-function renderCancellationBreakdown(list){
+function renderCancellationBreakdown(list, prevTotal){
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
   var total = closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
   function sumWhere(pred){ return closedList.filter(pred).reduce(function(s,r){ return s+toAED(r.amount,r.region); },0); }
@@ -2678,18 +2703,33 @@ function renderCancellationBreakdown(list){
   var storeCOD     = sumWhere(function(r){ return r.orderType==="Store"  && r.refundMethod==="Cash on Delivery"; });
   var refundRequest = onlineRefund + storeRefund;
   function pct(v){ return total? Math.round(v/total*100) : 0; }
-  function row(label, val, color, indent, isTotal){
-    return '<div class="cbrow'+(indent?" indent":"")+(isTotal?" total":"")+'">'+
-      '<div class="cbtop"><span class="cblbl">'+(color?'<span class="cbdot" style="background:'+color+'"></span>':'')+esc(label)+'</span>'+
-        '<span class="cbval">AED '+fmtMoney(val)+' <span class="cbpct">('+pct(val)+'%)</span></span></div>'+
-      '<div class="cbtrack"><div class="cbfill" style="width:'+Math.max(pct(val),val>0?2:0)+'%;background:'+(color||"var(--accent)")+'"></div></div>'+
+  function row(label, val, color, indent){
+    return '<div class="cbrow'+(indent?" indent":"")+'">'+
+      '<span class="cbdot" style="background:'+color+'"></span>'+
+      '<span class="cblbl">'+esc(label)+'</span>'+
+      '<div class="cbtrack"><div class="cbfill" style="width:'+Math.max(pct(val),val>0?2:0)+'%;background:'+color+'"></div></div>'+
+      '<span class="cbamt">AED '+fmtMoney(val)+'</span>'+
+      '<span class="cbpct">'+pct(val)+'%</span>'+
     '</div>';
   }
+  // Cash Pending Collection: of this period's Cash on Delivery value, how
+  // much has actually been picked up from the store/delivery team vs. is
+  // still outstanding — only meaningful once "collected" has real data on
+  // at least one COD request, so the panel stays out of the way otherwise.
+  var codList = closedList.filter(function(r){ return r.refundMethod==="Cash on Delivery"; });
+  var codTotal = onlineCOD + storeCOD;
+  var codCollected = codList.filter(function(r){ return r.collected; }).reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
+  var codPending = codTotal - codCollected;
+  var hasCollectionData = codList.some(function(r){ return r.collected; });
   return '<div class="card">'+
     '<h2>Cancellation Value Breakdown</h2>'+
     '<p class="sub">How the total cancelled value splits between actual refunds, Cash on Delivery, and Credit Note — COD kept separate since no money changes hands for it.</p>'+
+    '<div class="cbhero">'+
+      '<div class="cbfigure"><span class="cur">AED</span> '+fmtMoney(total)+'</div>'+
+      '<div class="cbmeta">'+closedList.length+' closed request(s)</div>'+
+      (prevTotal!=null ? '<div class="cbherotrend">'+trendBadge(total, prevTotal)+'</div>' : '')+
+    '</div>'+
     '<div class="cbtree">'+
-      row("Total Cancellation Amount", total, null, false, true)+
       row("Refund Request", refundRequest, "var(--good)")+
       row("Online Refund Amount", onlineRefund, "var(--info)", true)+
       row("Store Cancellation Amount and Refund", storeRefund, "var(--info)", true)+
@@ -2698,6 +2738,18 @@ function renderCancellationBreakdown(list){
       (onlineCredit>0 ? row("Online Credit Note", onlineCredit, "var(--cat-5)") : "")+
       (storeCOD>0 ? row("Store COD", storeCOD, "var(--cat-6)") : "")+
     '</div>'+
+    (codTotal>0 ? (
+      '<div class="cbcod">'+
+        '<div class="cbcodicon">💵</div>'+
+        '<div class="cbcodtxt"><h4>Cash Pending Collection</h4>'+
+          '<p>'+(hasCollectionData ? 'Of this period’s Cash on Delivery total, how much is still outstanding with the store/delivery team.' : 'Mark COD requests as collected (Edit → Cash Collected) to start tracking this — nothing marked yet, so it all shows as pending.')+'</p>'+
+        '</div>'+
+        '<div class="cbcodfigs">'+
+          '<div><div class="n" style="color:var(--warn)">AED '+fmtMoney(codPending)+'</div><div class="l">Not collected</div></div>'+
+          '<div><div class="n">AED '+fmtMoney(codCollected)+'</div><div class="l">Collected</div></div>'+
+        '</div>'+
+      '</div>'
+    ) : '')+
   '</div>';
 }
 function hbarList(m, limit, fmt, filterKey, toValue, showSharePct){

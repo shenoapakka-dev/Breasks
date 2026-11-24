@@ -108,7 +108,7 @@ function setup() {
   if (u.getLastRow() === 0) u.appendRow(["username", "password", "role", "createdAt"]);
   var r = ss.getSheetByName("Requests") || ss.insertSheet("Requests");
   if (r.getLastRow() === 0) {
-    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment","deliveryDate"]);
+    r.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment","deliveryDate","collected"]);
   }
   var def = ss.getSheetByName("Sheet1");
   if (def && def.getLastRow() === 0 && ss.getSheets().length > 2) ss.deleteSheet(def);
@@ -169,6 +169,20 @@ function migrateAddDeliveryDate() {
   if (headers.indexOf("deliveryDate") === -1) r.getRange(1, lastCol + 1).setValue("deliveryDate");
 }
 
+/* One-time migration: run this ONCE if your "Requests" tab predates the
+   "collected" field — whether a Cash on Delivery order's cash was actually
+   picked up from the store/delivery team before the order was cancelled.
+   Drives the "Cash Pending Collection" dashboard figure. Safe to run more
+   than once. Stored as the string "true"/"" rather than a real boolean so a
+   blank cell (every pre-existing row) reads as "not collected" with no
+   backfill needed. */
+function migrateAddCollected() {
+  var r = requestsSheet();
+  var lastCol = r.getLastColumn();
+  var headers = r.getRange(1, 1, 1, lastCol).getValues()[0];
+  if (headers.indexOf("collected") === -1) r.getRange(1, lastCol + 1).setValue("collected");
+}
+
 /* ---------- helpers ---------- */
 // Case-sensitive on purpose: "ShenoudaH" and "shenoudah" are different accounts.
 function normalizeUsername(u) { return String(u || "").trim(); }
@@ -190,7 +204,7 @@ function requestsSheet() {
   var sh = ss.getSheetByName("Requests");
   if (!sh) {
     sh = ss.insertSheet("Requests");
-    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment","deliveryDate"]);
+    sh.appendRow(["id","createdAt","agent","orderType","webOrderNumber","lnOrder","mobile","region","amount","reason","note","refundMethod","retain","status","updatedAt","historyJson","source","scope","items","customerCode","customerName","orderSegment","deliveryDate","collected"]);
   }
   return sh;
 }
@@ -284,7 +298,7 @@ function submitRequest(agentUsername, d) {
   sh.appendRow([
     id, now, agentUsername, d.orderType, d.webOrderNumber || "", d.lnOrder, d.mobile || "", d.region,
     Number(d.amount) || 0, d.reason, d.note, d.refundMethod, d.retain, "new", now, JSON.stringify(history),
-    d.source || "", d.scope || "", d.items || "", d.customerCode || "", d.customerName || "", d.orderSegment || "", d.deliveryDate || ""
+    d.source || "", d.scope || "", d.items || "", d.customerCode || "", d.customerName || "", d.orderSegment || "", d.deliveryDate || "", ""
   ]);
   return { id: id };
 }
@@ -329,7 +343,7 @@ function updateStatus(id, status, byUsername, remark) {
 // numbers are 1-indexed, matching the Requests sheet's actual layout.
 var EDITABLE_FIELDS = {
   webOrderNumber: 5, lnOrder: 6, mobile: 7, region: 8, amount: 9,
-  reason: 10, note: 11, refundMethod: 12, retain: 13, deliveryDate: 23
+  reason: 10, note: 11, refundMethod: 12, retain: 13, deliveryDate: 23, collected: 24
 };
 function editRequest(id, patch, byUsername) {
   patch = patch || {};
@@ -342,7 +356,7 @@ function editRequest(id, patch, byUsername) {
       Object.keys(patch).forEach(function (k) {
         var col = EDITABLE_FIELDS[k];
         if (!col) return;
-        var v = (k === "amount") ? (Number(patch[k]) || 0) : patch[k];
+        var v = (k === "amount") ? (Number(patch[k]) || 0) : (k === "collected") ? (patch[k] ? "true" : "") : patch[k];
         sh.getRange(row, col).setValue(v);
         changed.push(k);
       });
@@ -391,7 +405,8 @@ function getAll() {
       amount: rd[j][8], reason: rd[j][9], note: rd[j][10], refundMethod: rd[j][11], retain: rd[j][12],
       status: rd[j][13], updatedAt: rd[j][14], history: history,
       source: rd[j][16] || "", scope: rd[j][17] || "", items: rd[j][18] || "",
-      customerCode: rd[j][19] || "", customerName: rd[j][20] || "", orderSegment: rd[j][21] || "", deliveryDate: rd[j][22] || ""
+      customerCode: rd[j][19] || "", customerName: rd[j][20] || "", orderSegment: rd[j][21] || "", deliveryDate: rd[j][22] || "",
+      collected: rd[j][23] === "true"
     });
   }
   return { users: users, requests: requests };
