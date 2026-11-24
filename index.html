@@ -148,6 +148,22 @@ input[type=number],input[type=tel]{direction:ltr;text-align:left}
 .hbarrow[data-chart-filter]:hover .lbl{color:var(--ink);text-decoration:underline}
 .hbarrow.active .lbl{color:var(--accent);font-weight:700}
 .hbarrow.active .hbarfill{background:var(--accent)}
+/* Cancellation Value Breakdown — a small total/sub-total tree, each row its
+   own label+value line with a proportional bar underneath (vs. hbarlist's
+   fixed-width label column, too narrow for labels like "Stores Cancellation
+   and Credit Note"), indentation showing Refund Request's two children. */
+.cbtree{display:flex;flex-direction:column;gap:14px;margin-top:4px}
+.cbrow.indent{margin-left:26px}
+.cbtop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:5px}
+.cblbl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-muted);min-width:0}
+.cbdot{width:9px;height:9px;border-radius:999px;flex:none;display:inline-block}
+.cbval{font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}
+.cbpct{font-weight:600;color:var(--ink-faint);margin-left:2px}
+.cbtrack{background:var(--surface-2);border-radius:5px;height:9px;overflow:hidden}
+.cbfill{height:100%;border-radius:5px}
+.cbrow.total{padding-bottom:12px;margin-bottom:2px;border-bottom:1px solid var(--border)}
+.cbrow.total .cblbl{font-size:15px;font-weight:800;color:var(--ink)}
+.cbrow.total .cbval{font-size:17px;font-weight:800}
 .regionlegend{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
 .regionlegend-item{display:flex;align-items:center;gap:7px;background:var(--surface-2);border-radius:9px;padding:7px 11px;font-size:12px}
 .regionlegend-item .dot{width:9px;height:9px;border-radius:50%;flex:none}
@@ -1591,6 +1607,7 @@ function wireNewRequest(){
     }
   }
   var lastRejectedToast = "";
+  var lastDupModalKey = "";
   function checkDuplicateOrderNo(){
     var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
     var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
@@ -1600,8 +1617,14 @@ function wireNewRequest(){
     if(dup){
       hint.textContent = "⚠ Already has a cancellation request: "+dup.id+" ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+")";
       hint.classList.add("warn");
+      var dupKey = lnVal+"|"+webVal;
+      if(lastDupModalKey!==dupKey){
+        lastDupModalKey = dupKey;
+        showAlertModal("Duplicate Request", "Order "+dup.id+" already has a cancellation request ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+").\n\nCheck the Requests page for that case instead of raising a new one.");
+      }
       return;
     }
+    lastDupModalKey = "";
     hint.classList.remove("warn");
     // Not blocking (see findDuplicateRequest) — just a heads-up so the agent
     // can check they're not about to re-request the same item a sibling
@@ -2399,7 +2422,11 @@ function dashKpiSnapshot(list){
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
   var openList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)===-1 && REJECTED_STATUSES.indexOf(r.status)===-1 && NOT_CANCELLED_STATUSES.indexOf(r.status)===-1; });
   var retainedList = list.filter(function(r){ return r.retain==="Retained"; });
-  var refundValueList = list.filter(function(r){ return r.refundMethod==="Same Payment Method"; });
+  // Scoped to closedList (not the full period list) so this matches
+  // "Total Cancellation Amount" in the Cancellation Value Breakdown card
+  // below — both describe the money from requests actually cancelled, not
+  // every in-flight request that happens to have this refund method picked.
+  var refundValueList = closedList.filter(function(r){ return r.refundMethod==="Same Payment Method"; });
   var byType = countBy(list, function(r){ return r.orderType; });
   return {
     total: total,
@@ -2431,10 +2458,12 @@ function renderDashboard(){
   var retained = retainedList.length;
   var retainedAmt = retainedList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var retRate = total? Math.round(retained/total*100) : 0;
-  // "Refund Value" = the AED value of requests where an actual monetary
-  // refund was asked for (Same Payment Method), as opposed to Credit Note
-  // or Cash on Delivery (no money ever changed hands for those).
-  var refundValueList = list.filter(function(r){ return r.refundMethod==="Same Payment Method"; });
+  // "Refund Value" = the AED value of cancelled requests where an actual
+  // monetary refund was asked for (Same Payment Method), as opposed to
+  // Credit Note or Cash on Delivery (no money ever changed hands for those).
+  // Scoped to closedList so this matches "Refund Request" in the
+  // Cancellation Value Breakdown card below exactly.
+  var refundValueList = closedList.filter(function(r){ return r.refundMethod==="Same Payment Method"; });
   var refundValueAmt = refundValueList.reduce(function(s,r){ return s+toAED(r.amount, r.region); },0);
   var closedRate = total? Math.round(closedList.length/total*100) : 0;
 
@@ -2518,7 +2547,7 @@ function renderDashboard(){
   '<div class="kpis">'+
     kpiCU("Requests", total, {decimals:0}, scopeLabel(scope), prev && prev.total)+
     kpiCU("Cancelled Value", cancelledAmt, {prefix:"AED ", decimals:2}, closedList.length+" closed request(s), converted to AED", prev && prev.cancelledAmt)+
-    kpiCU("Pending Value", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" still open, converted to AED", prev && prev.pendingAmt)+
+    kpiCU("Pending Value (Still Open)", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" request(s) not yet cancelled/closed, converted to AED", prev && prev.pendingAmt)+
     kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained", prev && prev.retRate)+
     kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2}, retained+" retained request(s), converted to AED", prev && prev.retainedAmt)+
     kpiCU("Refund Value", refundValueAmt, {prefix:"AED ", decimals:2}, refundValueList.length+" request(s) via Same Payment Method, converted to AED", prev && prev.refundValueAmt)+
@@ -2526,6 +2555,7 @@ function renderDashboard(){
     kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders", prev && prev.store)+
     kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders", prev && prev.online)+
   '</div>'+
+  renderCancellationBreakdown(list)+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
     renderRegionLegend(list)+
@@ -2615,6 +2645,45 @@ function statusKeyForLabel(label){
 // into a drill-down instead of a read-only picture. showSharePct (optional)
 // appends each row's share of the TOTAL across every key in `m` (not just
 // the visible top `limit`), e.g. "42 (18%)".
+// How the total cancelled (closed) value splits by channel and refund type —
+// Cash on Delivery kept as its own line (no money ever moves for it) instead
+// of being folded into "refund", and the two real-refund channels (Online /
+// Store, both "Same Payment Method") roll up into one "Refund Request"
+// sub-total so it's clear how much of the total is an actual cash refund.
+function renderCancellationBreakdown(list){
+  var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
+  var total = closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
+  function sumWhere(pred){ return closedList.filter(pred).reduce(function(s,r){ return s+toAED(r.amount,r.region); },0); }
+  var onlineRefund = sumWhere(function(r){ return r.orderType==="Online" && r.refundMethod==="Same Payment Method"; });
+  var onlineCOD    = sumWhere(function(r){ return r.orderType==="Online" && r.refundMethod==="Cash on Delivery"; });
+  var onlineCredit = sumWhere(function(r){ return r.orderType==="Online" && r.refundMethod==="Credit Note"; });
+  var storeRefund  = sumWhere(function(r){ return r.orderType==="Store"  && r.refundMethod==="Same Payment Method"; });
+  var storeCredit  = sumWhere(function(r){ return r.orderType==="Store"  && r.refundMethod==="Credit Note"; });
+  var storeCOD     = sumWhere(function(r){ return r.orderType==="Store"  && r.refundMethod==="Cash on Delivery"; });
+  var refundRequest = onlineRefund + storeRefund;
+  function pct(v){ return total? Math.round(v/total*100) : 0; }
+  function row(label, val, color, indent, isTotal){
+    return '<div class="cbrow'+(indent?" indent":"")+(isTotal?" total":"")+'">'+
+      '<div class="cbtop"><span class="cblbl">'+(color?'<span class="cbdot" style="background:'+color+'"></span>':'')+esc(label)+'</span>'+
+        '<span class="cbval">AED '+fmtMoney(val)+' <span class="cbpct">('+pct(val)+'%)</span></span></div>'+
+      '<div class="cbtrack"><div class="cbfill" style="width:'+Math.max(pct(val),val>0?2:0)+'%;background:'+(color||"var(--accent)")+'"></div></div>'+
+    '</div>';
+  }
+  return '<div class="card">'+
+    '<h2>Cancellation Value Breakdown</h2>'+
+    '<p class="sub">How the total cancelled value splits between actual refunds, Cash on Delivery, and Credit Note — COD kept separate since no money changes hands for it.</p>'+
+    '<div class="cbtree">'+
+      row("Total Cancellation Amount", total, null, false, true)+
+      row("Refund Request", refundRequest, "var(--good)")+
+      row("Online Refund Amount", onlineRefund, "var(--info)", true)+
+      row("Store Cancellation Amount and Refund", storeRefund, "var(--info)", true)+
+      row("Online COD", onlineCOD, "var(--warn)")+
+      row("Stores Cancellation and Credit Note", storeCredit, "var(--cat-4)")+
+      (onlineCredit>0 ? row("Online Credit Note", onlineCredit, "var(--cat-5)") : "")+
+      (storeCOD>0 ? row("Store COD", storeCOD, "var(--cat-6)") : "")+
+    '</div>'+
+  '</div>';
+}
 function hbarList(m, limit, fmt, filterKey, toValue, showSharePct){
   var pairs = toPairs(m).slice(0, limit||10);
   if(!pairs.length) return '<p class="sub">No data yet.</p>';
