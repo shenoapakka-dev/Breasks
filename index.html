@@ -125,7 +125,7 @@ input[type=number],input[type=tel]{direction:ltr;text-align:left}
 .kpi .lbl{font-size:12px;color:var(--ink-muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .kpi .val{font-size:26px;font-weight:800;margin-top:6px;font-family:"Manrope",sans-serif}
 .kpi .sub{font-size:12px;color:var(--ink-faint);margin-top:2px}
-.kpi-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.kpi-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .trend{font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;letter-spacing:0}
 .trend.up{background:var(--good-soft);color:var(--good)}
 .trend.down{background:var(--bad-soft);color:var(--bad)}
@@ -1385,6 +1385,14 @@ function render(){
     try{ selStart = active.selectionStart; selEnd = active.selectionEnd; }catch(e){}
   }
   renderInner();
+  // CSS direction:ltr (see the input[type=number],input[type=tel] rule)
+  // controls text alignment, but on some browser/OS combos under an Arabic
+  // keyboard the actual digit INSERTION order still follows the OS's RTL
+  // text direction — typing "1000" lands as "0001" even though it reads
+  // left-to-right once typed. The dir="ltr" HTML attribute (not just the
+  // CSS property) is what actually overrides the Unicode bidi algorithm's
+  // character-insertion order, so it's set directly on every such field.
+  $all("input[type=number], input[type=tel]").forEach(function(el){ el.setAttribute("dir","ltr"); });
   if(activeId){
     var el = document.getElementById(activeId);
     if(el){ el.focus(); if(selStart != null && el.setSelectionRange){ try{ el.setSelectionRange(selStart, selEnd); }catch(e){} } }
@@ -2590,20 +2598,28 @@ function kpiCU(lbl, rawNum, opts, sub, trendPrev){
   opts = opts||{};
   var prefix=opts.prefix||"", suffix=opts.suffix||"", decimals=opts.decimals||0;
   var finalText = prefix+fmtCountNum(rawNum,decimals)+suffix;
-  var trend = trendPrev!=null ? trendBadge(rawNum, trendPrev) : '';
+  var trend = trendPrev!=null ? trendBadge(rawNum, trendPrev, opts) : '';
   return '<div class="kpi"><div class="kpi-head"><div class="lbl">'+lbl+'</div>'+trend+'</div>'+
     '<div class="val num" data-countup-raw="'+rawNum+'" data-countup-prefix="'+esc(prefix)+'" data-countup-suffix="'+esc(suffix)+'" data-countup-decimals="'+decimals+'">'+finalText+'</div>'+
     '<div class="sub">'+sub+'</div></div>';
 }
-// A small up/down trend pill comparing a KPI's current value to its value in
+// A small up/down trend pill showing the actual amount added/dropped versus
 // the previous equivalent period (yesterday / last month — see
-// previousPeriodRequests).
-function trendBadge(curr, prev){
+// previousPeriodRequests). Shows the real delta, not a relative %, since a
+// small previous-period base (e.g. a handful of requests last month) turns a
+// normal increase into an absurd-looking percentage like "+3769%".
+function trendBadge(curr, prev, opts){
+  opts = opts||{};
   curr = Number(curr)||0; prev = Number(prev)||0;
-  if(curr===prev) return '<span class="trend flat">→ 0%</span>';
-  var up = curr>prev;
-  var pct = prev===0 ? 100 : Math.round(Math.abs((curr-prev)/prev)*100);
-  return '<span class="trend '+(up?"up":"down")+'">'+(up?"▲":"▼")+' '+pct+'%</span>';
+  var diff = curr-prev;
+  var prefix = opts.prefix||"", suffix = opts.suffix||"";
+  // Always whole numbers in the badge, even for a 2-decimal AED KPI — exact
+  // cents aren't the point of an at-a-glance trend indicator, and it keeps
+  // the badge short enough to fit a narrow KPI card.
+  var diffText = prefix+fmtCountNum(Math.abs(diff),0)+suffix;
+  if(diff===0) return '<span class="trend flat">→ '+prefix+'0'+suffix+'</span>';
+  var up = diff>0;
+  return '<span class="trend '+(up?"up":"down")+'">'+(up?"▲":"▼")+' '+diffText+'</span>';
 }
 function fmtCountNum(n, decimals){
   n = Number(n)||0;
