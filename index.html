@@ -240,6 +240,17 @@ table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical
 .fu-popup h3{margin:0 0 4px;font-size:14px}
 .fu-popup .sub{margin:0 0 10px}
 .fu-popup .btnrow{gap:6px}
+/* Center-screen blocking alert (e.g. duplicate-order on submit) — unlike the
+   corner toast and fu-popup, this needs a dark backdrop and sits dead center
+   so it can't be missed or scrolled past. */
+.alert-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:300;padding:16px}
+.alert-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);max-width:420px;width:100%;padding:22px 22px 18px;position:relative;animation:alertPop .15s ease-out}
+@keyframes alertPop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+.alert-box .alert-close{position:absolute;top:10px;right:10px;width:30px;height:30px;border:none;background:var(--bg);border-radius:999px;font-size:16px;line-height:1;cursor:pointer;color:var(--ink-muted)}
+.alert-box .alert-close:hover{background:var(--border)}
+.alert-box h3{margin:0 0 10px;font-size:17px;padding-right:28px}
+.alert-box p{margin:0 0 18px;color:var(--ink-muted);font-size:14px;line-height:1.55;white-space:pre-line}
+.alert-box .btnrow{justify-content:flex-end}
 .fu-chat-btn{position:fixed;bottom:max(18px, env(safe-area-inset-bottom,0px));right:18px;z-index:140;border-radius:999px;padding:10px 16px;box-shadow:var(--shadow)}
 .fu-chat-badge{position:absolute;top:-4px;right:-4px;background:var(--bad);color:#fff;border-radius:999px;font-size:10px;font-weight:800;padding:1px 5px;min-width:16px;text-align:center}
 .fu-chat-panel{position:fixed;bottom:70px;right:18px;width:300px;max-height:420px;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);z-index:140;overflow:hidden}
@@ -260,6 +271,7 @@ table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical
 <div class="toast" id="toast"></div>
 <div id="fuPopupRoot"></div>
 <div id="fuChatRoot"></div>
+<div id="alertModalRoot"></div>
 
 <script>
 (function(){
@@ -432,6 +444,29 @@ function toast(msg){
   var el = $("#toast"); el.textContent = msg; el.classList.add("show");
   clearTimeout(toast._t); toast._t = setTimeout(function(){ el.classList.remove("show"); }, 2800);
 }
+// Center-screen, dismiss-yourself alert for things a corner toast is too easy
+// to miss while mid-task (e.g. the duplicate-order block on New Request
+// submit) — stays up until the agent closes it, instead of auto-fading.
+function showAlertModal(title, message){
+  state.alertModal = { title: title, message: message };
+  renderOverlays();
+}
+function closeAlertModal(){
+  state.alertModal = null;
+  renderOverlays();
+}
+function renderAlertModal(){
+  var root = $("#alertModalRoot"); if(!root) return;
+  if(!state.alertModal){ root.innerHTML = ""; return; }
+  root.innerHTML = '<div class="alert-overlay" data-alert-overlay>'+
+    '<div class="alert-box">'+
+      '<button type="button" class="alert-close" data-alert-close aria-label="Close">✕</button>'+
+      '<h3>⚠ '+esc(state.alertModal.title)+'</h3>'+
+      '<p>'+esc(state.alertModal.message)+'</p>'+
+      '<div class="btnrow"><button type="button" class="btn good sm" data-alert-close>OK</button></div>'+
+    '</div>'+
+  '</div>';
+}
 function startOfDay(d){ var x=new Date(d); x.setHours(0,0,0,0); return x.getTime(); }
 function startOfMonth(d){ var x=new Date(d); x.setDate(1); x.setHours(0,0,0,0); return x.getTime(); }
 function toMs(v){ var t = (typeof v==="number") ? v : new Date(v).getTime(); return isNaN(t) ? 0 : t; }
@@ -456,6 +491,7 @@ var state = {
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:"",refundMethod:"",retain:"",minAED:"",maxAED:""},
   openCard:null,
+  alertModal:null,
   filters:{ q:"", status:"", orderType:"", region:"", agent:"", refundMethod:"", retain:"", reason:"", minAED:"", maxAED:"", bucket:"" },
   fu: null // set below once fuInitialState() is defined (function declarations are hoisted, so this is fine)
 };
@@ -693,7 +729,14 @@ function parseEtmPaste(raw){
     return false;
   });
 
-  var mobile = field("Mobile").split("|")[0].trim();
+  // Validate — some ETM page layouts have another line containing the word
+  // "Mobile" (a breadcrumb/page title) ahead of the real "Mobile" table row,
+  // which the simple label-then-next-line regex above can latch onto first,
+  // storing page-title text as the phone number. A real mobile number is
+  // mostly digits, so require a handful of them before accepting it; a field
+  // this picks up by mistake reads as text and has few or none at all.
+  var mobileRaw = field("Mobile").split("|")[0].trim();
+  var mobile = digitsOnly(mobileRaw).length>=6 ? mobileRaw : "";
   var totalRaw = field("Total").replace(/[^\d.]/g,"");
   var total = totalRaw!=="" ? parseFloat(totalRaw) : null;
   var paidRaw = field("Paid Amount").replace(/[^\d.]/g,"");
@@ -777,7 +820,7 @@ async function submitRequest(){
   if(dup){
     fail(lnEl);
     if(webVal) fail(webEl);
-    toast("Order "+dup.id+" already has a cancellation request ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+").");
+    showAlertModal("Duplicate Request", "Order "+dup.id+" already has a cancellation request ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+").\n\nCheck the Requests page for that case instead of raising a new one.");
     lnEl.focus();
     return false;
   }
@@ -1057,7 +1100,12 @@ function mobileCore(s){
 }
 function mobileMatches(stored, query){
   var sc = mobileCore(stored), qc = mobileCore(query);
-  if(!qc) return false;
+  // Guard against both cores being compared with String.indexOf(""), which
+  // JS always returns 0 (not -1) for — an empty/unparseable stored mobile
+  // number would otherwise match every digit-containing search (the bug
+  // behind searching an LN order number returning unrelated requests whose
+  // Mobile field never parsed correctly).
+  if(!qc || !sc) return false;
   return sc.indexOf(qc)!==-1 || qc.indexOf(sc)!==-1;
 }
 // Groupings the Requests-page summary cards click into (see
@@ -1152,6 +1200,7 @@ function initGlobalEvents(){
   document.addEventListener("click", function(e){
     var t;
     if(t = e.target.closest("[data-theme-toggle]")){ toggleTheme(); return; }
+    if(t = e.target.closest("[data-alert-close]") || (e.target.hasAttribute && e.target.hasAttribute("data-alert-overlay") ? e.target : null)){ closeAlertModal(); return; }
     if(t = e.target.closest(".roletoggle label")){
       $all(".roletoggle label").forEach(function(l){ l.classList.remove("checked"); });
       t.classList.add("checked");
@@ -3041,7 +3090,7 @@ function renderChatWidget(){
     '</div>';
   var box = $("#fuChatMsgs"); if(box) box.scrollTop = box.scrollHeight;
 }
-function renderOverlays(){ renderReminderPopup(); renderChatWidget(); }
+function renderOverlays(){ renderReminderPopup(); renderChatWidget(); renderAlertModal(); }
 
 /* ---------- small render helpers ---------- */
 function fuPriorityBadge(p){
