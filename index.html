@@ -334,13 +334,13 @@ var REASONS = [
   "Payment Failed / Payment Issue","Can No Longer Afford the Item","Relocating / Moving Plans Changed",
   "Assembly / Installation Concerns","Ordered by Mistake","Prefers Exchange Instead of Cancellation",
   "Delivery Address Problem","Suspected Fraudulent Order","Other (Specify in Notes)"
-];
+].sort(function(a,b){ return a.localeCompare(b); });
 // Reasons removed from the New Request / Edit dropdowns (not offered going
 // forward) but kept filterable so old requests already using them can still
 // be found — "Change of Mind" was removed from REASONS but plenty of
 // existing requests already have it stored.
 var LEGACY_REASONS = ["Change of Mind"];
-var ALL_REASONS_FOR_FILTER = REASONS.concat(LEGACY_REASONS);
+var ALL_REASONS_FOR_FILTER = REASONS.concat(LEGACY_REASONS).sort(function(a,b){ return a.localeCompare(b); });
 var REGIONS = [
   {code:"UAE",label:"United Arab Emirates"},
   {code:"KSA",label:"Saudi Arabia"},
