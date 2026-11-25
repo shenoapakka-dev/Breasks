@@ -82,9 +82,15 @@ input[type=text],input[type=number],input[type=password],select,textarea{
 input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
 textarea{resize:vertical;min-height:64px}
 /* Typing digits in a number/tel field under an Arabic browser/OS locale
-   otherwise enters right-to-left (cursor jumps to the left as you type) —
-   force left-to-right so amounts and phone numbers type normally. */
-input[type=number],input[type=tel]{direction:ltr;text-align:left}
+   otherwise enters right-to-left (cursor jumps to the left as you type,
+   landing digits in reverse — "1000" becomes "0001") — force left-to-right
+   so amounts and phone numbers type normally. The dir="ltr" HTML attribute
+   (added after every render — see render()) covers type=number/tel, but on
+   some mobile browsers even that doesn't stop a native <input type=number>'s
+   own spinner widget from re-ordering digits by the OS locale; .numfield
+   marks the plain text+inputmode fields (see sanitizeNumeric()) that replace
+   type=number for exactly that reason, so they never hit that widget at all. */
+input[type=number],input[type=tel],input.numfield{direction:ltr;text-align:left}
 .field{display:flex;flex-direction:column;gap:0;min-width:0}
 .field .hint{font-size:11.5px;color:var(--ink-faint);margin-top:4px;min-height:0}
 .field .hint.warn{color:var(--bad);font-weight:600}
@@ -329,6 +335,12 @@ var REASONS = [
   "Assembly / Installation Concerns","Ordered by Mistake","Prefers Exchange Instead of Cancellation",
   "Delivery Address Problem","Suspected Fraudulent Order","Other (Specify in Notes)"
 ];
+// Reasons removed from the New Request / Edit dropdowns (not offered going
+// forward) but kept filterable so old requests already using them can still
+// be found — "Change of Mind" was removed from REASONS but plenty of
+// existing requests already have it stored.
+var LEGACY_REASONS = ["Change of Mind"];
+var ALL_REASONS_FOR_FILTER = REASONS.concat(LEGACY_REASONS);
 var REGIONS = [
   {code:"UAE",label:"United Arab Emirates"},
   {code:"KSA",label:"Saudi Arabia"},
@@ -1130,6 +1142,22 @@ function agentNames(){
 // country code (971/966/974/968, with or without a "00"/"+" prefix) —
 // "0501234567", "501234567" and "971501234567" should all find the same row.
 function digitsOnly(s){ return String(s||"").replace(/\D/g,""); }
+// Strips anything that isn't a digit (and, for amounts, at most one decimal
+// point) as the agent types — the actual fix for numbers reversing under an
+// Arabic keyboard: a plain type="text" field never engages the browser's
+// native type="number" spinner widget, which is what was still re-ordering
+// digits even with dir="ltr" set on it.
+function sanitizeNumericField(el, allowDecimal){
+  var v = el.value;
+  var cleaned = allowDecimal
+    ? v.replace(/[^0-9.]/g,"").replace(/(\..*)\./g,"$1")
+    : v.replace(/[^0-9]/g,"");
+  if(cleaned!==v){
+    var pos = el.selectionStart;
+    el.value = cleaned;
+    try{ el.setSelectionRange(pos, pos); }catch(e){}
+  }
+}
 function mobileCore(s){
   var d = digitsOnly(s).replace(/^00/, "");
   ["971","966","974","968"].some(function(c){ if(d.indexOf(c)===0){ d = d.slice(c.length); return true; } return false; });
@@ -1234,6 +1262,14 @@ function computeReportData(){
 
 /* ---------- global event delegation (bound once) ---------- */
 function initGlobalEvents(){
+  // Capture phase so this runs and cleans the value BEFORE the field's own
+  // (bubble-phase) input listener reads it — e.g. #fMinAED's own listener
+  // that copies this.value into state.filters.minAED.
+  document.addEventListener("input", function(e){
+    if(e.target.classList && e.target.classList.contains("numfield")){
+      sanitizeNumericField(e.target, e.target.dataset.decimal === "1");
+    }
+  }, true);
   document.addEventListener("click", function(e){
     var t;
     if(t = e.target.closest("[data-theme-toggle]")){ toggleTheme(); return; }
@@ -1406,14 +1442,14 @@ function render(){
     try{ selStart = active.selectionStart; selEnd = active.selectionEnd; }catch(e){}
   }
   renderInner();
-  // CSS direction:ltr (see the input[type=number],input[type=tel] rule)
-  // controls text alignment, but on some browser/OS combos under an Arabic
-  // keyboard the actual digit INSERTION order still follows the OS's RTL
-  // text direction — typing "1000" lands as "0001" even though it reads
-  // left-to-right once typed. The dir="ltr" HTML attribute (not just the
-  // CSS property) is what actually overrides the Unicode bidi algorithm's
-  // character-insertion order, so it's set directly on every such field.
-  $all("input[type=number], input[type=tel]").forEach(function(el){ el.setAttribute("dir","ltr"); });
+  // Belt-and-suspenders for the RTL-keyboard digit-reversal bug: dir="ltr"
+  // plus CSS direction (input[type=number],input[type=tel],input.numfield)
+  // fixes #mobileInput (still type=tel) and the few remaining numfields on
+  // browsers where that alone is enough; sanitizeNumericField() (wired as a
+  // capture-phase input listener in initGlobalEvents()) is what actually
+  // guarantees it everywhere else, since it never lets a non-digit through
+  // regardless of how the OS/browser tried to order the keystrokes.
+  $all("input[type=number], input[type=tel], input.numfield").forEach(function(el){ el.setAttribute("dir","ltr"); });
   if(activeId){
     var el = document.getElementById(activeId);
     if(el){ el.focus(); if(selStart != null && el.setSelectionRange){ try{ el.setSelectionRange(selStart, selEnd); }catch(e){} } }
@@ -1533,7 +1569,7 @@ function renderNewRequest(){
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Region *</label><select name="region" id="regionSel"><option value="">Select…</option>'+regionOpts+'</select><div class="hint" id="regionHint"></div></div>'+
-        '<div class="field"><label>Amount (<span id="amountCurrency">select region</span>) *</label><input type="number" id="amountInput" step="0.01" name="amount" placeholder="0.00"></div>'+
+        '<div class="field"><label>Amount (<span id="amountCurrency">select region</span>) *</label><input type="text" inputmode="decimal" class="numfield" data-decimal="1" id="amountInput" name="amount" placeholder="0.00"></div>'+
       '</div>'+
       '<div class="grid cols2" style="margin-bottom:14px">'+
         '<div class="field"><label>Reason of Cancellation *</label><select id="reasonSel" name="reason"><option value="">Select…</option>'+reasonOpts+'</select></div>'+
@@ -1731,7 +1767,7 @@ function wireNewRequest(){
         '<td style="text-align:center">'+esc(it.bo||"0")+'</td>'+
         '<td style="text-align:center">'+(it.price||it.unitPrice).toFixed(2)+'</td>'+
         '<td style="text-align:center">'+(it.lineTotal!=null?it.lineTotal.toFixed(2):(it.orderedQty*it.unitPrice).toFixed(2))+'</td>'+
-        '<td style="text-align:center"><input type="number" min="0" max="'+it.orderedQty+'" step="1" data-iqty="'+i+'" value="'+it.cancelQty+'" style="width:52px;padding:4px" '+(it.checked?"":"disabled")+'></td>'+
+        '<td style="text-align:center"><input type="text" inputmode="numeric" class="numfield" data-iqty="'+i+'" value="'+it.cancelQty+'" style="width:52px;padding:4px" '+(it.checked?"":"disabled")+'></td>'+
         '<td class="itm-line-total" style="text-align:center">'+lineAmount(it).toFixed(2)+'</td>'+
       '</tr>';
     }).join("");
@@ -1741,7 +1777,7 @@ function wireNewRequest(){
         '<td colspan="8"><input type="text" data-exdesc="'+i+'" value="'+esc(c.desc)+'" placeholder="e.g. Delivery fee" style="width:100%;padding:4px"></td>'+
         '<td></td>'+
         '<td></td>'+
-        '<td style="text-align:center"><input type="number" step="0.01" data-examt="'+i+'" value="'+(c.amount||"")+'" style="width:70px;padding:4px"></td>'+
+        '<td style="text-align:center"><input type="text" inputmode="decimal" class="numfield" data-decimal="1" data-examt="'+i+'" value="'+(c.amount||"")+'" style="width:70px;padding:4px"></td>'+
       '</tr>';
     }).join("");
     field.innerHTML =
@@ -1929,11 +1965,11 @@ function renderRequests(){
       '<div class="field"><label>Retain / Not Retain</label><select id="fRetain"><option value="">All</option>'+
         RETAIN_OPTIONS.map(function(x){ return '<option value="'+esc(x)+'" '+(state.filters.retain===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Reason</label><select id="fReason"><option value="">All</option>'+
-        REASONS.map(function(x){ return '<option value="'+esc(x)+'" '+(state.filters.reason===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+        ALL_REASONS_FOR_FILTER.map(function(x){ return '<option value="'+esc(x)+'" '+(state.filters.reason===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Agent</label><select id="fAgent"><option value="">All</option>'+
         agentNames().map(function(a){ return '<option value="'+esc(a)+'" '+(state.filters.agent===a?"selected":"")+'>'+esc(a)+'</option>'; }).join("")+'</select></div>'+
-      '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="number" id="fMinAED" min="0" step="1" placeholder="e.g. 1000" value="'+esc(state.filters.minAED)+'"></div>'+
-      '<div class="field" style="width:130px"><label>Max Value (AED)</label><input type="number" id="fMaxAED" min="0" step="1" placeholder="No limit" value="'+esc(state.filters.maxAED)+'"></div>'+
+      '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="text" inputmode="numeric" class="numfield" id="fMinAED" placeholder="e.g. 1000" value="'+esc(state.filters.minAED)+'"></div>'+
+      '<div class="field" style="width:130px"><label>Max Value (AED)</label><input type="text" inputmode="numeric" class="numfield" id="fMaxAED" placeholder="No limit" value="'+esc(state.filters.maxAED)+'"></div>'+
       '<button class="btn sm" id="exportBtn">Export CSV</button>'+
     '</div>'+
     '<p class="sub" style="margin:0 0 14px;font-weight:600;color:var(--ink)">Showing <span class="num">'+list.length+'</span> of '+state.requests.length+' request(s)'+
@@ -2039,10 +2075,17 @@ function renderReqCard(r){
   var editBox = canStage ? '<div class="opsbox" id="editBox-'+r.id+'" hidden>'+
     '<div class="grid cols2" style="margin-bottom:10px">'+
       '<div class="field"><label>Mobile Number</label><input type="tel" class="editMobile" value="'+esc(r.mobile)+'"></div>'+
-      '<div class="field"><label>Amount</label><input type="number" step="0.01" class="editAmount" value="'+esc(r.amount)+'"></div>'+
+      '<div class="field"><label>Amount</label><input type="text" inputmode="decimal" class="numfield editAmount" data-decimal="1" value="'+esc(r.amount)+'"></div>'+
     '</div>'+
     '<div class="grid cols2" style="margin-bottom:10px">'+
-      '<div class="field"><label>Reason</label><select class="editReason">'+REASONS.map(function(x){ return '<option '+(x===r.reason?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Reason</label><select class="editReason">'+
+        // If this request's stored reason was later removed from REASONS
+        // (e.g. retired "Change of Mind"), still list it so it stays
+        // selected — otherwise the browser silently selects whatever's
+        // first in the list, and saving without touching Reason would
+        // quietly change it.
+        (r.reason && REASONS.indexOf(r.reason)===-1 ? '<option selected>'+esc(r.reason)+'</option>' : '')+
+        REASONS.map(function(x){ return '<option '+(x===r.reason?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>Refund Via</label><select class="editRefund">'+REFUND_METHODS.map(function(x){ return '<option value="'+esc(x)+'" '+(x===r.refundMethod?"selected":"")+'>'+esc(refundLabel(x))+'</option>'; }).join("")+'</select></div>'+
     '</div>'+
     '<div class="grid cols2" style="margin-bottom:10px">'+
@@ -2462,6 +2505,13 @@ function dashKpiSnapshot(list){
   // every in-flight request that happens to have this refund method picked.
   var refundValueList = closedList.filter(function(r){ return r.refundMethod==="Same Payment Method"; });
   var byType = countBy(list, function(r){ return r.orderType; });
+  // Same STATUS_BUCKETS the Requests page summary cards use (see
+  // renderRequestsSummary()) — kept identical so the two pages' New/In
+  // Progress/Cancelled/Rejected counts always agree with each other.
+  var bucketCounts = { "new":0, open:0, closed:0, rejected:0 };
+  list.forEach(function(r){
+    Object.keys(STATUS_BUCKETS).forEach(function(k){ if(STATUS_BUCKETS[k].indexOf(r.status)>-1) bucketCounts[k]++; });
+  });
   return {
     total: total,
     cancelledAmt: closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
@@ -2471,7 +2521,11 @@ function dashKpiSnapshot(list){
     refundValueAmt: refundValueList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0),
     closedRate: total? Math.round(closedList.length/total*100) : 0,
     store: byType["Store"]||0,
-    online: byType["Online"]||0
+    online: byType["Online"]||0,
+    newCount: bucketCounts["new"],
+    openCount: bucketCounts.open,
+    closedCount: bucketCounts.closed,
+    rejectedCount: bucketCounts.rejected
   };
 }
 function renderDashboard(){
@@ -2531,6 +2585,12 @@ function renderDashboard(){
   var byRefund = countBy(list, function(r){ return refundLabel(r.refundMethod); });
   var byRetain = countBy(list, function(r){ return r.retain; });
   var byStatus = countBy(list, function(r){ return STATUS[r.status]?STATUS[r.status].label:r.status; });
+  // Same STATUS_BUCKETS the Requests page summary cards use, so the two
+  // pages' New / In Progress / Cancelled / Rejected counts always agree.
+  var bucketCounts = { "new":0, open:0, closed:0, rejected:0 };
+  list.forEach(function(r){
+    Object.keys(STATUS_BUCKETS).forEach(function(k){ if(STATUS_BUCKETS[k].indexOf(r.status)>-1) bucketCounts[k]++; });
+  });
 
   var trendBuckets = buildTrend(list, scope);
   var f = state.dashFilters;
@@ -2570,9 +2630,9 @@ function renderDashboard(){
       '<div class="field" style="width:140px"><label>Retain / Not Retain</label><select id="dfRetain"><option value="">All</option>'+
         RETAIN_OPTIONS.map(function(x){ return '<option value="'+esc(x)+'" '+(f.retain===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
       '<div class="field" style="width:190px"><label>Reason</label><select id="dfReason"><option value="">All</option>'+
-        REASONS.map(function(x){ return '<option value="'+esc(x)+'" '+(f.reason===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
-      '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="number" id="dfMinAED" min="0" step="1" placeholder="e.g. 1000" value="'+esc(f.minAED)+'"></div>'+
-      '<div class="field" style="width:130px"><label>Max Value (AED)</label><input type="number" id="dfMaxAED" min="0" step="1" placeholder="No limit" value="'+esc(f.maxAED)+'"></div>'+
+        ALL_REASONS_FOR_FILTER.map(function(x){ return '<option value="'+esc(x)+'" '+(f.reason===x?"selected":"")+'>'+esc(x)+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field" style="width:130px"><label>Min Value (AED)</label><input type="text" inputmode="numeric" class="numfield" id="dfMinAED" placeholder="e.g. 1000" value="'+esc(f.minAED)+'"></div>'+
+      '<div class="field" style="width:130px"><label>Max Value (AED)</label><input type="text" inputmode="numeric" class="numfield" id="dfMaxAED" placeholder="No limit" value="'+esc(f.maxAED)+'"></div>'+
     '</div>'+
   '</div>'+
   renderDashDrilldown(list)+
@@ -2588,6 +2648,10 @@ function renderDashboard(){
     kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled", prev && prev.closedRate)+
     kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders", prev && prev.store)+
     kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders", prev && prev.online)+
+    kpiCU("New", bucketCounts["new"], {decimals:0}, "not yet actioned", prev && prev.newCount)+
+    kpiCU("In Progress", bucketCounts.open, {decimals:0}, "sent to store/online team, not yet closed", prev && prev.openCount)+
+    kpiCU("Cancelled", bucketCounts.closed, {decimals:0}, "fully cancelled", prev && prev.closedCount)+
+    kpiCU("Rejected / Not Cancelled", bucketCounts.rejected, {decimals:0}, "returned to the agent, or technical issue", prev && prev.rejectedCount)+
   '</div>'+
   renderCancellationBreakdown(list, prev && prev.cancelledAmt)+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
@@ -3474,8 +3538,8 @@ function renderFollowupNew(){
           '<div class="field"><label>Alert Window To</label><input type="time" id="fuAlertTo" value="17:00"></div>'+
         '</div>'+
         '<div class="grid cols2" style="margin-bottom:14px">'+
-          '<div class="field"><label>Repeat Interval (minutes)</label><input type="number" id="fuRepeatMin" value="15" min="1"></div>'+
-          '<div class="field"><label>Snooze (minutes)</label><input type="number" id="fuSnoozeMin" value="10" min="1"></div>'+
+          '<div class="field"><label>Repeat Interval (minutes)</label><input type="text" inputmode="numeric" class="numfield" id="fuRepeatMin" value="15"></div>'+
+          '<div class="field"><label>Snooze (minutes)</label><input type="text" inputmode="numeric" class="numfield" id="fuSnoozeMin" value="10"></div>'+
         '</div>'+
       '</div>'+
       '<button class="btn primary" type="submit">Save Follow-up</button>'+
