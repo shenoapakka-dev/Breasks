@@ -1637,7 +1637,7 @@ function wireNewRequest(){
   }
   var lastRejectedToast = "";
   var lastDupModalKey = "";
-  function checkDuplicateOrderNo(){
+  function checkDuplicateOrderNo(suppressModal){
     var lnVal = (form.lnOrder.value||"").trim().toUpperCase();
     var webVal = (form.webOrderNumber.value||"").trim().toUpperCase();
     var scopeVal = form.scope ? form.scope.value : "";
@@ -1647,7 +1647,12 @@ function wireNewRequest(){
       hint.textContent = "⚠ Already has a cancellation request: "+dup.id+" ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+")";
       hint.classList.add("warn");
       var dupKey = lnVal+"|"+webVal;
-      if(lastDupModalKey!==dupKey){
+      // Suppressed right after an ETM auto-fill: popping this modal there, before
+      // the rest of the paste (mobile, customer, items, amount) even lands on the
+      // form, makes auto-fill look broken — the fields behind the overlay DID
+      // fill in, but it reads as "nothing happened". The inline hint above still
+      // warns either way; only the blocking popup is skipped.
+      if(!suppressModal && lastDupModalKey!==dupKey){
         lastDupModalKey = dupKey;
         showAlertModal("Duplicate Request", "Order "+dup.id+" already has a cancellation request ("+(STATUS[dup.status]?STATUS[dup.status].label:dup.status)+").\n\nCheck the Requests page for that case instead of raising a new one.");
       }
@@ -1810,7 +1815,7 @@ function wireNewRequest(){
     etmParsed = parsed;
     if(parsed.lnOrder) form.lnOrder.value = parsed.lnOrder;
     if(parsed.webOrderNumber){ form.webOrderNumber.value = parsed.webOrderNumber; sel.value = "Online"; syncWebOrder(); }
-    detectFromOrderNo(); checkDuplicateOrderNo();
+    detectFromOrderNo(); checkDuplicateOrderNo(true);
     if(parsed.mobile) $("#mobileInput").value = parsed.mobile;
     syncRefundOptions(parsed.paid);
     if(parsed.customerCode){
