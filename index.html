@@ -164,9 +164,14 @@ input[type=number],input[type=tel],input.numfield{direction:ltr;text-align:left}
 .cbmeta{color:var(--ink-faint);font-size:12.5px}
 .cbherotrend{margin-left:auto}
 .cbtree{display:flex;flex-direction:column;gap:12px}
-.cbrow{display:grid;grid-template-columns:9px 1fr 140px auto 42px;gap:10px;align-items:center}
-.cbrow.indent{grid-template-columns:9px 30px 1fr 140px auto 42px}
-.cbrow.indent .cbdot{grid-column:1}
+.cbrow{display:grid;grid-template-columns:9px 1fr 140px auto 42px;gap:10px;align-items:center;padding-left:0}
+/* Indent by padding the whole row, not by adding an extra grid column — a
+   real extra column needs a matching extra DOM child (a spacer span) on
+   every indented row or every column after it shifts by one: the label
+   lands in a 30px slot (squeezed to "Onl…"), the bar in the label's slot,
+   the amount in the bar's slot, and the % column goes empty. That's exactly
+   what shipped — row() never emitted that spacer. */
+.cbrow.indent{padding-left:26px}
 .cblbl{font-size:12.5px;color:var(--ink-soft);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cbdot{width:9px;height:9px;border-radius:999px;flex:none}
 .cbamt{font-size:12.5px;font-weight:700;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right}
