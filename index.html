@@ -2654,6 +2654,7 @@ function renderDashboard(){
     kpiCU("Rejected / Not Cancelled", bucketCounts.rejected, {decimals:0}, "returned to the agent, or technical issue", prev && prev.rejectedCount)+
   '</div>'+
   renderCancellationBreakdown(list, prev && prev.cancelledAmt)+
+  renderChannelRetentionBreakdown(list)+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
     renderRegionLegend(list)+
@@ -2794,6 +2795,46 @@ function renderCancellationBreakdown(list, prevTotal){
       row("Stores Cancellation and Credit Note", storeCredit, "var(--cat-4)")+
       (onlineCredit>0 ? row("Online Credit Note", onlineCredit, "var(--cat-5)") : "")+
       (storeCOD>0 ? row("Store COD", storeCOD, "var(--cat-6)") : "")+
+    '</div>'+
+  '</div>';
+}
+// A second cut of the same Cancelled Value total, split by channel then by
+// retention — Cancelled Value -> Online/Store -> Retain/Not Retain each, per
+// the hand-drawn tree this was spec'd from.
+function renderChannelRetentionBreakdown(list){
+  var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
+  var total = closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
+  function sumWhere(pred){ return closedList.filter(pred).reduce(function(s,r){ return s+toAED(r.amount,r.region); },0); }
+  var onlineTotal = sumWhere(function(r){ return r.orderType==="Online"; });
+  var onlineRetain = sumWhere(function(r){ return r.orderType==="Online" && r.retain==="Retained"; });
+  var onlineNotRetain = sumWhere(function(r){ return r.orderType==="Online" && r.retain!=="Retained"; });
+  var storeTotal = sumWhere(function(r){ return r.orderType==="Store"; });
+  var storeRetain = sumWhere(function(r){ return r.orderType==="Store" && r.retain==="Retained"; });
+  var storeNotRetain = sumWhere(function(r){ return r.orderType==="Store" && r.retain!=="Retained"; });
+  function pct(v){ return total? Math.round(v/total*100) : 0; }
+  function row(label, val, color, indent){
+    return '<div class="cbrow'+(indent?" indent":"")+'">'+
+      '<span class="cbdot" style="background:'+color+'"></span>'+
+      '<span class="cblbl">'+esc(label)+'</span>'+
+      '<div class="cbtrack"><div class="cbfill" style="width:'+Math.max(pct(val),val>0?2:0)+'%;background:'+color+'"></div></div>'+
+      '<span class="cbamt">AED '+fmtMoney(val)+'</span>'+
+      '<span class="cbpct">'+pct(val)+'%</span>'+
+    '</div>';
+  }
+  return '<div class="card">'+
+    '<h2>Cancelled Value by Channel &amp; Retention</h2>'+
+    '<p class="sub">The same total cancelled value, cut a different way: Online vs. Store, then how much of each was retained.</p>'+
+    '<div class="cbhero">'+
+      '<div class="cbfigure"><span class="cur">AED</span> '+fmtMoney(total)+'</div>'+
+      '<div class="cbmeta">'+closedList.length+' closed request(s)</div>'+
+    '</div>'+
+    '<div class="cbtree">'+
+      row("Online", onlineTotal, "var(--cat-2)")+
+      row("Retain", onlineRetain, "var(--good)", true)+
+      row("Not Retain", onlineNotRetain, "var(--bad)", true)+
+      row("Store", storeTotal, "var(--cat-1)")+
+      row("Retain", storeRetain, "var(--good)", true)+
+      row("Not Retain", storeNotRetain, "var(--bad)", true)+
     '</div>'+
   '</div>';
 }
