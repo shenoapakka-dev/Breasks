@@ -137,9 +137,9 @@ input[type=number],input[type=tel],input.numfield{direction:ltr;text-align:left}
 .trend.down{background:var(--bad-soft);color:var(--bad)}
 .trend.flat{background:var(--bg);color:var(--ink-faint)}
 
-.scopebar{display:flex;gap:6px;background:var(--surface-2);padding:3px;border-radius:9px;width:max-content}
-.scopebar button{border:none;background:transparent;padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:700;color:var(--ink-muted);cursor:pointer}
-.scopebar button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.scopebar,.treefilterbar{display:flex;gap:6px;background:var(--surface-2);padding:3px;border-radius:9px;width:max-content}
+.scopebar button,.treefilterbar button{border:none;background:transparent;padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:700;color:var(--ink-muted);cursor:pointer}
+.scopebar button.active,.treefilterbar button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
 
 .chartgrid{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
 @media (max-width:900px){.chartgrid{grid-template-columns:1fr}}
@@ -356,9 +356,9 @@ table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical
 .dash-theme .kpi-icon.tone-bad{background:var(--bad-soft);color:var(--bad)}
 .dash-theme .kpi-icon.tone-info{background:var(--info-soft);color:var(--info)}
 .dash-theme .kpi-icon.tone-warn{background:var(--warn-soft);color:var(--warn)}
-.dash-theme .scopebar{border-radius:999px;padding:4px}
-.dash-theme .scopebar button{border-radius:999px;transition:background .15s,color .15s}
-.dash-theme .scopebar button.active{box-shadow:0 1px 2px rgba(0,0,0,.08),0 4px 10px -4px rgba(0,0,0,.18)}
+.dash-theme .scopebar,.dash-theme .treefilterbar{border-radius:999px;padding:4px}
+.dash-theme .scopebar button,.dash-theme .treefilterbar button{border-radius:999px;transition:background .15s,color .15s}
+.dash-theme .scopebar button.active,.dash-theme .treefilterbar button.active{box-shadow:0 1px 2px rgba(0,0,0,.08),0 4px 10px -4px rgba(0,0,0,.18)}
 .dash-theme .cbfill,.dash-theme .hbarfill{transform-origin:left center;animation:dashBarGrow .7s cubic-bezier(.22,1,.36,1)}
 @keyframes dashBarGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 .dash-theme .card,.dash-theme .kpi{animation:dashCardIn .35s ease both}
@@ -611,6 +611,7 @@ var state = {
   requests:[],
   route:"new",
   dashScope:"month",
+  dashTreeFilter:"all", // local filter for the Channel & Retention tree card only: all | paid | cod
   dashRange:{from:"",to:""},
   dashFilters:{region:"",status:"",orderType:"",source:"",agent:"",reason:"",refundMethod:"",retain:"",minAED:"",maxAED:""},
   openCard:null,
@@ -630,6 +631,10 @@ function refreshAll(silent){
     state.requests = (data.requests || []).map(function(r){ r.createdAt = toMs(r.createdAt); r.updatedAt = toMs(r.updatedAt); return r; });
     var me = state.users.filter(function(u){ return u.username === state.currentUser.username; })[0];
     if(me) state.currentUser.role = me.role;
+    // Admin-only tab/route — if an admin's own role changes mid-session
+    // (e.g. demoted by another admin) while they're sitting on the
+    // Dashboard, don't leave them stuck on a tab that no longer shows up.
+    if(state.route==="dashboard" && !isAdmin()) state.route = "requests";
     // Background polling must never blow away a form the user is mid-typing in
     // (New Request fields, a password field, an ops remark, ...) — most of those
     // aren't driven by `state`, so a full re-render would silently clear them.
@@ -1360,6 +1365,7 @@ function initGlobalEvents(){
       return;
     }
     if(t = e.target.closest(".scopebar button")){ state.dashScope = t.dataset.scope; render(); return; }
+    if(t = e.target.closest("[data-tree-filter]")){ state.dashTreeFilter = t.dataset.treeFilter; render(); return; }
     if(t = e.target.closest("[data-fu-preset]")){ state.fu.preset = t.dataset.fuPreset; state.fu.page=1; fuFetchDataDebounced(); render(); return; }
     if(t = e.target.closest("[data-fu-kpi]")){
       var fk = t.dataset.fuKpi;
@@ -1593,7 +1599,8 @@ function wireAuth(){
 /* ---------- SHELL ---------- */
 function renderShell(){
   var u = state.currentUser;
-  var tabs = [["new","New Request"],["requests","Requests"],["followup","Follow-up & Reminders"],["dashboard","Dashboard"],["account","Account"]];
+  var tabs = [["new","New Request"],["requests","Requests"],["followup","Follow-up & Reminders"],["account","Account"]];
+  if(isAdmin()) tabs.splice(3, 0, ["dashboard","Dashboard"]);
   if(canCreateAccounts()) tabs.push(["team","Team"]);
   var initials = (u.username||"?").slice(0,2).toUpperCase();
   return '<div class="topbar">'+
@@ -1611,14 +1618,14 @@ function wireShell(){
   if(state.route==="new") wireNewRequest();
   if(state.route==="requests") wireRequests();
   if(state.route==="followup") wireFollowup();
-  if(state.route==="dashboard") wireDashboard();
+  if(state.route==="dashboard" && isAdmin()) wireDashboard();
   if(state.route==="account") wireAccount();
 }
 function renderRoute(){
   if(state.route==="new") return renderNewRequest();
   if(state.route==="requests") return renderRequests();
   if(state.route==="followup") return renderFollowup();
-  if(state.route==="dashboard") return renderDashboard();
+  if(state.route==="dashboard" && isAdmin()) return renderDashboard();
   if(state.route==="account") return renderAccount();
   if(state.route==="team" && canCreateAccounts()) return renderTeam();
   return renderNewRequest();
@@ -2882,7 +2889,10 @@ function renderCancellationBreakdown(list, prevTotal){
 // list): a root box for the grand total, branching to Online/Store, each
 // branching again to Retain/Not Retain.
 function renderChannelRetentionTree(list){
+  var treeFilter = state.dashTreeFilter||"all";
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
+  if(treeFilter==="paid") closedList = closedList.filter(function(r){ return r.refundMethod!=="Cash on Delivery"; });
+  else if(treeFilter==="cod") closedList = closedList.filter(function(r){ return r.refundMethod==="Cash on Delivery"; });
   var totalAmt = closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
   function sumWhere(pred){
     var rows = closedList.filter(pred);
@@ -2912,6 +2922,9 @@ function renderChannelRetentionTree(list){
   return '<div class="card">'+
     '<h2>Cancelled Value by Channel &amp; Retention</h2>'+
     '<p class="sub">The same total cancelled value, cut a different way: Online vs. Store, then how much of each was retained.</p>'+
+    '<div class="treefilterbar" style="margin-bottom:14px">'+
+      ["all","paid","cod"].map(function(f){ return '<button data-tree-filter="'+f+'" class="'+(treeFilter===f?"active":"")+'">'+({all:"All",paid:"Paid Order",cod:"COD"})[f]+'</button>'; }).join("")+
+    '</div>'+
     '<div class="ctree"><ul><li>'+
       box("Cancelled Value", {amt:totalAmt, n:closedList.length}, "root")+
       '<ul>'+
