@@ -164,7 +164,7 @@ input[type=number],input[type=tel],input.numfield{direction:ltr;text-align:left}
 .cbmeta{color:var(--ink-faint);font-size:12.5px}
 .cbherotrend{margin-left:auto}
 .cbtree{display:flex;flex-direction:column;gap:12px}
-.cbrow{display:grid;grid-template-columns:9px 1fr 140px auto 42px;gap:10px;align-items:center;padding-left:0}
+.cbrow{display:grid;grid-template-columns:9px minmax(150px,280px) 1fr auto 42px;gap:10px;align-items:center;padding-left:0}
 /* Indent by padding the whole row, not by adding an extra grid column — a
    real extra column needs a matching extra DOM child (a spacer span) on
    every indented row or every column after it shifts by one: the label
@@ -178,6 +178,33 @@ input[type=number],input[type=tel],input.numfield{direction:ltr;text-align:left}
 .cbpct{font-weight:600;color:var(--ink-faint);font-size:11.5px;text-align:right}
 .cbtrack{background:var(--surface-2);border-radius:5px;height:8px;overflow:hidden}
 .cbfill{height:100%;border-radius:5px}
+/* Org-chart tree (Cancelled Value -> Online/Store -> Retain/Not Retain),
+   built to match the hand-drawn diagram it was spec'd from — pure-CSS
+   connector lines via li::before/::after, no JS layout math needed. */
+.ctree{overflow-x:auto;padding:4px 4px 16px}
+.ctree>ul{display:flex;justify-content:center;padding-top:0;min-width:max-content}
+.ctree ul{list-style:none;margin:0;padding-left:0}
+.ctree li{display:flex;flex-direction:column;align-items:center;position:relative;padding:28px 16px 0}
+.ctree li::before,.ctree li::after{content:'';position:absolute;top:0;right:50%;border-top:1px solid var(--border);width:50%;height:28px}
+.ctree li::after{right:auto;left:50%;border-left:1px solid var(--border)}
+.ctree li:only-child{padding-top:0}
+.ctree li:only-child::before,.ctree li:only-child::after{display:none}
+.ctree li:first-child::before,.ctree li:last-child::after{border:none}
+.ctree li:last-child::before{border-right:1px solid var(--border);border-radius:0 6px 0 0}
+.ctree li:first-child:not(:only-child)::after{border-radius:6px 0 0 0}
+.ctree li>ul{display:flex;padding-top:28px;position:relative}
+.ctree li>ul::before{content:'';position:absolute;top:0;left:50%;border-left:1px solid var(--border);width:0;height:28px}
+.tbox{display:inline-flex;flex-direction:column;align-items:center;gap:2px;background:var(--surface);
+  border:1px solid var(--border);border-radius:12px;padding:10px 18px;box-shadow:var(--shadow);min-width:126px}
+.tbox .tlbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-muted);white-space:nowrap}
+.tbox .tval{font-size:15.5px;font-weight:800;font-family:"Manrope",sans-serif;color:var(--ink);white-space:nowrap}
+.tbox .tsub{font-size:11px;color:var(--ink-faint);white-space:nowrap}
+.tbox.root{background:var(--accent);border-color:transparent}
+.tbox.root .tlbl,.tbox.root .tval,.tbox.root .tsub{color:var(--accent-ink)}
+.tbox.tone-good{border-color:var(--good);background:var(--good-soft)}
+.tbox.tone-good .tval{color:var(--good)}
+.tbox.tone-bad{border-color:var(--bad);background:var(--bad-soft)}
+.tbox.tone-bad .tval{color:var(--bad)}
 .cbcod{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:18px;padding:16px 18px;
   background:var(--warn-soft);border:1px solid var(--warn);border-radius:12px}
 .cbcodicon{width:36px;height:36px;border-radius:10px;background:var(--warn);display:flex;align-items:center;
@@ -2702,7 +2729,7 @@ function renderDashboard(){
     kpiCU("Rejected / Not Cancelled", bucketCounts.rejected, {decimals:0, icon:"🚫", tone:"warn"}, "returned to the agent, or technical issue", prev && prev.rejectedCount)+
   '</div>'+
   renderCancellationBreakdown(list, prev && prev.cancelledAmt)+
-  renderChannelRetentionBreakdown(list)+
+  renderChannelRetentionTree(list)+
   '<div class="card"><h2>Requests Over Time</h2><p class="sub">'+(scope==="today"?"Hourly for today":(scope==="month"?"Daily for this month":(scope==="custom"?"Across the selected range":"Monthly, last 12 months")))+' — stacked by region; hover a bar for the exact split.</p>'+
     renderTrendSVG(trendBuckets)+
     renderRegionLegend(list)+
@@ -2849,43 +2876,49 @@ function renderCancellationBreakdown(list, prevTotal){
   '</div>';
 }
 // A second cut of the same Cancelled Value total, split by channel then by
-// retention — Cancelled Value -> Online/Store -> Retain/Not Retain each, per
-// the hand-drawn tree this was spec'd from.
-function renderChannelRetentionBreakdown(list){
+// retention — Cancelled Value -> Online/Store -> Retain/Not Retain each —
+// drawn as an actual branching org-chart tree, matching the hand-drawn
+// diagram this was spec'd from box-for-box (not just the same numbers in a
+// list): a root box for the grand total, branching to Online/Store, each
+// branching again to Retain/Not Retain.
+function renderChannelRetentionTree(list){
   var closedList = list.filter(function(r){ return CLOSED_STATUSES.indexOf(r.status)>-1; });
-  var total = closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
-  function sumWhere(pred){ return closedList.filter(pred).reduce(function(s,r){ return s+toAED(r.amount,r.region); },0); }
-  var onlineTotal = sumWhere(function(r){ return r.orderType==="Online"; });
+  var totalAmt = closedList.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0);
+  function sumWhere(pred){
+    var rows = closedList.filter(pred);
+    return { amt: rows.reduce(function(s,r){ return s+toAED(r.amount,r.region); },0), n: rows.length };
+  }
+  var online = sumWhere(function(r){ return r.orderType==="Online"; });
   var onlineRetain = sumWhere(function(r){ return r.orderType==="Online" && r.retain==="Retained"; });
-  var onlineNotRetain = sumWhere(function(r){ return r.orderType==="Online" && r.retain!=="Retained"; });
-  var storeTotal = sumWhere(function(r){ return r.orderType==="Store"; });
+  var onlineNot = sumWhere(function(r){ return r.orderType==="Online" && r.retain!=="Retained"; });
+  var store = sumWhere(function(r){ return r.orderType==="Store"; });
   var storeRetain = sumWhere(function(r){ return r.orderType==="Store" && r.retain==="Retained"; });
-  var storeNotRetain = sumWhere(function(r){ return r.orderType==="Store" && r.retain!=="Retained"; });
-  function pct(v){ return total? Math.round(v/total*100) : 0; }
-  function row(label, val, color, indent){
-    return '<div class="cbrow'+(indent?" indent":"")+'">'+
-      '<span class="cbdot" style="background:'+color+'"></span>'+
-      '<span class="cblbl">'+esc(label)+'</span>'+
-      '<div class="cbtrack"><div class="cbfill" style="width:'+Math.max(pct(val),val>0?2:0)+'%;background:'+color+'"></div></div>'+
-      '<span class="cbamt">AED '+fmtMoney(val)+'</span>'+
-      '<span class="cbpct">'+pct(val)+'%</span>'+
+  var storeNot = sumWhere(function(r){ return r.orderType==="Store" && r.retain!=="Retained"; });
+  function box(label, data, extraCls){
+    return '<div class="tbox'+(extraCls?" "+extraCls:"")+'">'+
+      '<div class="tlbl">'+esc(label)+'</div>'+
+      '<div class="tval">AED '+fmtMoney(data.amt)+'</div>'+
+      '<div class="tsub">'+data.n+' request(s)</div>'+
     '</div>';
+  }
+  function branch(channelLabel, channelData, retainData, notRetainData){
+    return '<li>'+box(channelLabel, channelData)+
+      '<ul>'+
+        '<li>'+box("Retain", retainData, "tone-good")+'</li>'+
+        '<li>'+box("Not Retain", notRetainData, "tone-bad")+'</li>'+
+      '</ul>'+
+    '</li>';
   }
   return '<div class="card">'+
     '<h2>Cancelled Value by Channel &amp; Retention</h2>'+
     '<p class="sub">The same total cancelled value, cut a different way: Online vs. Store, then how much of each was retained.</p>'+
-    '<div class="cbhero">'+
-      '<div class="cbfigure"><span class="cur">AED</span> '+fmtMoney(total)+'</div>'+
-      '<div class="cbmeta">'+closedList.length+' closed request(s)</div>'+
-    '</div>'+
-    '<div class="cbtree">'+
-      row("Online", onlineTotal, "var(--cat-2)")+
-      row("Retain", onlineRetain, "var(--good)", true)+
-      row("Not Retain", onlineNotRetain, "var(--bad)", true)+
-      row("Store", storeTotal, "var(--cat-1)")+
-      row("Retain", storeRetain, "var(--good)", true)+
-      row("Not Retain", storeNotRetain, "var(--bad)", true)+
-    '</div>'+
+    '<div class="ctree"><ul><li>'+
+      box("Cancelled Value", {amt:totalAmt, n:closedList.length}, "root")+
+      '<ul>'+
+        branch("Online", online, onlineRetain, onlineNot)+
+        branch("Store", store, storeRetain, storeNot)+
+      '</ul>'+
+    '</li></ul></div>'+
   '</div>';
 }
 // ETM's own fulfillment-type code, parsed into orderSegment by
