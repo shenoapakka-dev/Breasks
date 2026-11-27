@@ -309,6 +309,48 @@ table.teamtbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical
 .fu-chat-panel .ft{display:flex;gap:6px;padding:10px;border-top:1px solid var(--border)}
 .fu-chat-panel .ft input{flex:1}
 @media (max-width:480px){.fu-chat-panel{width:calc(100vw - 32px);right:16px}}
+
+/* ---- Dashboard theme (adapted from the Zajel shipper dashboard reference
+   video: soft, borderless elevated cards with big rounded corners, tinted
+   icon badges on each stat tile, a pill-style period switcher, and
+   animated bar fills / staggered entrances — but no colored hero banner:
+   the request was explicitly "same colors and frame borders, minus the
+   green background". Scoped to .dash-theme so none of it leaks into the
+   Requests list, New Request form, or any other page. ---- */
+.dash-theme .card,.dash-theme .kpi{border-radius:20px;border-color:transparent;
+  box-shadow:var(--shadow),0 16px 36px -20px rgba(0,0,0,.18);
+  transition:box-shadow .2s ease,transform .2s ease}
+.dash-theme .card:hover,.dash-theme .kpi:hover{transform:translateY(-2px)}
+.dash-theme .kpi-id{display:flex;align-items:center;gap:10px;min-width:0}
+.dash-theme .kpi-icon{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;
+  justify-content:center;font-size:16px;flex:none}
+.dash-theme .kpi-icon.tone-accent{background:var(--accent-soft);color:var(--accent)}
+.dash-theme .kpi-icon.tone-good{background:var(--good-soft);color:var(--good)}
+.dash-theme .kpi-icon.tone-bad{background:var(--bad-soft);color:var(--bad)}
+.dash-theme .kpi-icon.tone-info{background:var(--info-soft);color:var(--info)}
+.dash-theme .kpi-icon.tone-warn{background:var(--warn-soft);color:var(--warn)}
+.dash-theme .scopebar{border-radius:999px;padding:4px}
+.dash-theme .scopebar button{border-radius:999px;transition:background .15s,color .15s}
+.dash-theme .scopebar button.active{box-shadow:0 1px 2px rgba(0,0,0,.08),0 4px 10px -4px rgba(0,0,0,.18)}
+.dash-theme .cbfill,.dash-theme .hbarfill{transform-origin:left center;animation:dashBarGrow .7s cubic-bezier(.22,1,.36,1)}
+@keyframes dashBarGrow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.dash-theme .card,.dash-theme .kpi{animation:dashCardIn .35s ease both}
+@keyframes dashCardIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.dash-theme .kpis .kpi:nth-child(1){animation-delay:0ms}
+.dash-theme .kpis .kpi:nth-child(2){animation-delay:30ms}
+.dash-theme .kpis .kpi:nth-child(3){animation-delay:60ms}
+.dash-theme .kpis .kpi:nth-child(4){animation-delay:90ms}
+.dash-theme .kpis .kpi:nth-child(5){animation-delay:120ms}
+.dash-theme .kpis .kpi:nth-child(6){animation-delay:150ms}
+.dash-theme .kpis .kpi:nth-child(7){animation-delay:180ms}
+.dash-theme .kpis .kpi:nth-child(8){animation-delay:210ms}
+.dash-theme .kpis .kpi:nth-child(9){animation-delay:240ms}
+.dash-theme .kpis .kpi:nth-child(10){animation-delay:270ms}
+.dash-theme .kpis .kpi:nth-child(11){animation-delay:300ms}
+.dash-theme .kpis .kpi:nth-child(12){animation-delay:330ms}
+@media (prefers-reduced-motion:reduce){
+  .dash-theme .card,.dash-theme .kpi,.dash-theme .cbfill,.dash-theme .hbarfill{animation:none}
+}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
@@ -2601,6 +2643,7 @@ function renderDashboard(){
   var f = state.dashFilters;
 
   return ''+
+  '<div class="dash-theme">'+
   '<div class="card" style="padding-bottom:10px">'+
     '<div class="btnrow" style="justify-content:space-between;margin-bottom:12px">'+
       '<div><h2 style="margin:0">Dashboard</h2><p class="sub" style="margin:2px 0 0">Analytics across every submitted request (refreshes automatically).</p></div>'+
@@ -2644,19 +2687,19 @@ function renderDashboard(){
   (canUpdateStage() ? renderHealthSection() : '')+
   (trendNote ? '<p class="sub" style="margin:-4px 0 10px">Trend arrows compare this period '+trendNote+'.</p>' : '')+
   '<div class="kpis">'+
-    kpiCU("Requests", total, {decimals:0}, scopeLabel(scope), prev && prev.total)+
-    kpiCU("Cancelled Value", cancelledAmt, {prefix:"AED ", decimals:2}, closedList.length+" closed request(s), converted to AED", prev && prev.cancelledAmt)+
-    kpiCU("Pending Value (Still Open)", pendingAmt, {prefix:"AED ", decimals:2}, openList.length+" request(s) not yet cancelled/closed, converted to AED", prev && prev.pendingAmt)+
-    kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0}, retained+" of "+total+" retained", prev && prev.retRate)+
-    kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2}, retained+" retained request(s), converted to AED", prev && prev.retainedAmt)+
-    kpiCU("Refund Value", refundValueAmt, {prefix:"AED ", decimals:2}, refundValueList.length+" request(s) via Same Payment Method, converted to AED", prev && prev.refundValueAmt)+
-    kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0}, closedList.length+" of "+total+" fully cancelled", prev && prev.closedRate)+
-    kpiCU("Store", byType["Store"]||0, {decimals:0}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders", prev && prev.store)+
-    kpiCU("Online", byType["Online"]||0, {decimals:0}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders", prev && prev.online)+
-    kpiCU("New", bucketCounts["new"], {decimals:0}, "not yet actioned", prev && prev.newCount)+
-    kpiCU("In Progress", bucketCounts.open, {decimals:0}, "sent to store/online team, not yet closed", prev && prev.openCount)+
-    kpiCU("Cancelled", bucketCounts.closed, {decimals:0}, "fully cancelled", prev && prev.closedCount)+
-    kpiCU("Rejected / Not Cancelled", bucketCounts.rejected, {decimals:0}, "returned to the agent, or technical issue", prev && prev.rejectedCount)+
+    kpiCU("Requests", total, {decimals:0, icon:"🗂️", tone:"accent"}, scopeLabel(scope), prev && prev.total)+
+    kpiCU("Cancelled Value", cancelledAmt, {prefix:"AED ", decimals:2, icon:"💸", tone:"bad"}, closedList.length+" closed request(s), converted to AED", prev && prev.cancelledAmt)+
+    kpiCU("Pending Value (Still Open)", pendingAmt, {prefix:"AED ", decimals:2, icon:"⏳", tone:"warn"}, openList.length+" request(s) not yet cancelled/closed, converted to AED", prev && prev.pendingAmt)+
+    kpiCU("Retention Rate", retRate, {suffix:"%", decimals:0, icon:"🔁", tone:"good"}, retained+" of "+total+" retained", prev && prev.retRate)+
+    kpiCU("Retained Value", retainedAmt, {prefix:"AED ", decimals:2, icon:"🤝", tone:"good"}, retained+" retained request(s), converted to AED", prev && prev.retainedAmt)+
+    kpiCU("Refund Value", refundValueAmt, {prefix:"AED ", decimals:2, icon:"↩️", tone:"info"}, refundValueList.length+" request(s) via Same Payment Method, converted to AED", prev && prev.refundValueAmt)+
+    kpiCU("Closed Rate", closedRate, {suffix:"%", decimals:0, icon:"✅", tone:"good"}, closedList.length+" of "+total+" fully cancelled", prev && prev.closedRate)+
+    kpiCU("Store", byType["Store"]||0, {decimals:0, icon:"🏬", tone:"accent"}, total? Math.round(100*(byType["Store"]||0)/total)+"% of requests in view":"store orders", prev && prev.store)+
+    kpiCU("Online", byType["Online"]||0, {decimals:0, icon:"🛒", tone:"info"}, total? Math.round(100*(byType["Online"]||0)/total)+"% of requests in view":"online orders", prev && prev.online)+
+    kpiCU("New", bucketCounts["new"], {decimals:0, icon:"🆕", tone:"info"}, "not yet actioned", prev && prev.newCount)+
+    kpiCU("In Progress", bucketCounts.open, {decimals:0, icon:"🚚", tone:"warn"}, "sent to store/online team, not yet closed", prev && prev.openCount)+
+    kpiCU("Cancelled", bucketCounts.closed, {decimals:0, icon:"✖️", tone:"bad"}, "fully cancelled", prev && prev.closedCount)+
+    kpiCU("Rejected / Not Cancelled", bucketCounts.rejected, {decimals:0, icon:"🚫", tone:"warn"}, "returned to the agent, or technical issue", prev && prev.rejectedCount)+
   '</div>'+
   renderCancellationBreakdown(list, prev && prev.cancelledAmt)+
   renderChannelRetentionBreakdown(list)+
@@ -2683,6 +2726,7 @@ function renderDashboard(){
   '<div class="chartgrid">'+
     chartCard("Top Customers — count", hbarList(byCustomerCount,8))+
     chartCard("Top Customers — value (AED)", hbarList(byCustomerAmt,8,function(v){return "AED "+fmtMoney(v);}))+
+  '</div>'+
   '</div>';
 }
 function scopeLabel(s){ return s==="today"?"today":(s==="month"?"this month":(s==="custom"?"the selected range":"all time")); }
@@ -2694,9 +2738,10 @@ function kpi(lbl,val,sub){ return '<div class="kpi"><div class="lbl">'+lbl+'</di
 function kpiCU(lbl, rawNum, opts, sub, trendPrev){
   opts = opts||{};
   var prefix=opts.prefix||"", suffix=opts.suffix||"", decimals=opts.decimals||0;
+  var icon=opts.icon||"📈", tone=opts.tone||"accent";
   var finalText = prefix+fmtCountNum(rawNum,decimals)+suffix;
   var trend = trendPrev!=null ? trendBadge(rawNum, trendPrev, opts) : '';
-  return '<div class="kpi"><div class="kpi-head"><div class="lbl">'+lbl+'</div>'+trend+'</div>'+
+  return '<div class="kpi"><div class="kpi-head"><div class="kpi-id"><span class="kpi-icon tone-'+tone+'">'+icon+'</span><div class="lbl">'+lbl+'</div></div>'+trend+'</div>'+
     '<div class="val num" data-countup-raw="'+rawNum+'" data-countup-prefix="'+esc(prefix)+'" data-countup-suffix="'+esc(suffix)+'" data-countup-decimals="'+decimals+'">'+finalText+'</div>'+
     '<div class="sub">'+sub+'</div></div>';
 }
